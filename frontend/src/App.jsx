@@ -12,6 +12,7 @@ export default function App() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const scrollRef = useRef(null);
 
   useEffect(() => {
@@ -245,8 +246,10 @@ export default function App() {
   return (
     <div className="page">
       <div className="chat-container">
-        {/* Sidebar */}
-        <aside className="sidebar">
+        {sidebarOpen && (
+          <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)} />
+        )}
+        <aside className={`sidebar ${sidebarOpen ? "sidebar-open" : ""}`}>
           <div className="sidebar-brand">
             <div className="avatar-lg">RF</div>
             <span className="sidebar-title">Ram Fincorp</span>
@@ -286,7 +289,7 @@ export default function App() {
                   <button
                     key={label}
                     className="sidebar-action-btn"
-                    onClick={() => sendMessage(label)}
+                    onClick={() => { sendMessage(label); setSidebarOpen(false); }}
                     disabled={isTyping}
                   >
                     {label}
@@ -313,6 +316,15 @@ export default function App() {
         {/* Main chat area */}
         <main className="chat-main">
           <header className="header">
+            <button
+              className="menu-btn"
+              onClick={() => setSidebarOpen((v) => !v)}
+              aria-label="Toggle menu"
+            >
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+                <path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+              </svg>
+            </button>
             <div className="avatar">RF</div>
             <div className="header-info">
               <div className="header-title">Ram Fincorp Support</div>
