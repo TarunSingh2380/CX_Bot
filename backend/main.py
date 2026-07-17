@@ -7,12 +7,20 @@ Endpoints:
 """
 
 import json
+import logging
 import os
 from pathlib import Path
-from typing import Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(name)s] %(levelname)s — %(message)s",
+    datefmt="%H:%M:%S",
+)
+log = logging.getLogger("chatbot")
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -23,6 +31,7 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 import customer_api  # noqa: E402
 import enrichment  # noqa: E402
+import salesiq  # noqa: E402
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 MODEL = "gpt-5-mini"
@@ -80,6 +89,32 @@ class ChatResponse(BaseModel):
     confidence: int
     ticket_number: Optional[str] = None
     options: Optional[List[str]] = None
+    conversation_id: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Active agent sessions: customer_key → conversation_id
+# ---------------------------------------------------------------------------
+_agent_sessions: Dict[str, str] = {}
+
+
+def _customer_key(email: Optional[str], phone: Optional[str]) -> str:
+    return f"{(email or '').lower()}|{phone or ''}"
+
+
+class AgentPollRequest(BaseModel):
+    conversation_id: str
+    last_seen: int = 0
+
+
+class AgentPollResponse(BaseModel):
+    messages: List[Dict]
+    closed: bool
+
+
+class AgentSendRequest(BaseModel):
+    conversation_id: str
+    message: str
 
 
 # ---------------------------------------------------------------------------
@@ -276,11 +311,14 @@ def health():
 @app.post("/identify", response_model=IdentifyResponse)
 def identify(req: IdentifyRequest) -> IdentifyResponse:
     """Customer enters email/phone → we identify and pre-warm the context cache."""
+    log.info("[identify] email=%s phone=%s", req.email, req.phone)
     context, cust = enrichment.build_customer_context(
         email=req.email, phone=req.phone
     )
     if not cust.get("customerID"):
+        log.info("[identify] Customer NOT FOUND")
         return IdentifyResponse(found=False)
+    log.info("[identify] Customer FOUND — id=%s lead=%s", cust["customerID"], cust["leadID"])
     return IdentifyResponse(
         found=True,
         customerID=cust["customerID"],
@@ -292,6 +330,7 @@ def identify(req: IdentifyRequest) -> IdentifyResponse:
 
 @app.post("/chat", response_model=ChatResponse)
 def chat(req: ChatRequest) -> ChatResponse:
+    log.info("[chat] message=%s | email=%s | phone=%s", req.message[:60], req.email, req.phone)
     context, cust = enrichment.build_customer_context(
         email=req.email, phone=req.phone
     )
@@ -305,6 +344,7 @@ def chat(req: ChatRequest) -> ChatResponse:
     messages.append({"role": "user", "content": req.message})
 
     try:
+        log.info("[chat] Calling LLM (%s)...", MODEL)
         completion = client.chat.completions.create(
             model=MODEL,
             messages=messages,
@@ -312,16 +352,21 @@ def chat(req: ChatRequest) -> ChatResponse:
         )
         raw = completion.choices[0].message.content or ""
         response = _parse_llm_json(raw)
+        log.info("[chat] LLM response — action=%s confidence=%s category=%s",
+                 response.action, response.confidence, response.category)
 
         # Intercept SEND_NOC: call the actual API and replace the reply.
         if response.action == "SEND_NOC" and cust.get("leadID"):
+            log.info("[chat] SEND_NOC — calling NOC API for lead=%s", cust["leadID"])
             noc_result = customer_api.send_noc(cust["leadID"])
             if noc_result["success"]:
+                log.info("[chat] NOC sent successfully")
                 response.reply = (
                     "Your No Dues Certificate (NOC) has been sent successfully "
                     "to your registered email address. Please check your inbox."
                 )
             else:
+                log.error("[chat] NOC failed — %s", noc_result["message"])
                 response.reply = (
                     "Sorry, we couldn't send the NOC right now. "
                     f"Reason: {noc_result['message']}. "
@@ -329,10 +374,90 @@ def chat(req: ChatRequest) -> ChatResponse:
                 )
                 response.action = "RESOLVE"
 
+        # Intercept ESCALATE: create SalesIQ conversation for live agent.
+        if response.action == "ESCALATE":
+            customer_name = cust.get("email") or cust.get("mobile") or "Customer"
+            email = cust.get("email") or req.email or ""
+            phone = cust.get("mobile") or req.phone or ""
+            category = response.category or "Other / Complex Query"
+            question = f"[{category}] {req.message}"
+
+            log.info("[chat] ESCALATE — creating SalesIQ conversation | category=%s", category)
+            conv_id = salesiq.open_conversation(
+                name=customer_name, email=email, phone=phone, question=question,
+            )
+            if conv_id:
+                history_summary = "\n".join(
+                    f"{'Customer' if m.role == 'user' else 'Bot'}: {m.content}"
+                    for m in req.conversation_history[-6:]
+                )
+                context_msg = (
+                    f"Customer: {customer_name} ({email}, {phone})\n"
+                    f"Category: {category}\n"
+                    f"Issue: {req.message}\n\n"
+                    f"--- Recent conversation ---\n{history_summary}"
+                )
+                salesiq.send_visitor_message(conv_id, context_msg)
+
+                key = _customer_key(req.email, req.phone)
+                _agent_sessions[key] = conv_id
+                response.conversation_id = conv_id
+                log.info("[chat] ESCALATE SUCCESS — conversation_id=%s", conv_id)
+            else:
+                log.error("[chat] ESCALATE FAILED — could not create SalesIQ conversation")
+
         return response
     except Exception as exc:
-        print(f"[chat] error: {exc}")
+        log.error("[chat] Error: %s", exc, exc_info=True)
         return _fallback_response()
+
+
+# ---------------------------------------------------------------------------
+# Agent endpoints (polling + message forwarding)
+# ---------------------------------------------------------------------------
+@app.post("/agent/poll", response_model=AgentPollResponse)
+def agent_poll(req: AgentPollRequest) -> AgentPollResponse:
+    """Frontend polls this to get new agent messages from SalesIQ."""
+    log.debug("[agent/poll] conv=%s last_seen=%s", req.conversation_id, req.last_seen)
+    all_msgs = salesiq.get_messages(req.conversation_id)
+
+    agent_messages = []
+    closed = False
+
+    for m in all_msgs:
+        seq = int(m.get("sequence_id", 0))
+        if seq <= req.last_seen:
+            continue
+
+        if m.get("type") == "info":
+            mode = m.get("message", {}).get("mode", "")
+            if mode == "chatclosed":
+                closed = True
+                log.info("[agent/poll] Chat CLOSED by agent | conv=%s", req.conversation_id)
+            continue
+
+        sender_type = m.get("sender", {}).get("type", "")
+        if sender_type == "operator":
+            text = m.get("message", {}).get("text", "")
+            sender_name = m.get("sender", {}).get("name", "Agent")
+            log.info("[agent/poll] New agent message | from=%s | msg=%s", sender_name, text[:80])
+            agent_messages.append({
+                "sequence_id": seq,
+                "text": text,
+                "sender": sender_name,
+                "time": m.get("time", ""),
+            })
+
+    return AgentPollResponse(messages=agent_messages, closed=closed)
+
+
+@app.post("/agent/send")
+def agent_send(req: AgentSendRequest):
+    """Forward customer message to SalesIQ conversation."""
+    log.info("[agent/send] conv=%s | msg=%s", req.conversation_id, req.message[:80])
+    success = salesiq.send_visitor_message(req.conversation_id, req.message)
+    log.info("[agent/send] Result: %s", "SUCCESS" if success else "FAILED")
+    return {"success": success}
 
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend" / "dist"

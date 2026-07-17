@@ -15,6 +15,13 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const scrollRef = useRef(null);
 
+  // Agent mode state
+  const [agentMode, setAgentMode] = useState(false);
+  const [conversationId, setConversationId] = useState(null);
+  const [agentClosed, setAgentClosed] = useState(false);
+  const lastSeenRef = useRef(0);
+  const pollRef = useRef(null);
+
   useEffect(() => {
     scrollRef.current?.scrollTo({
       top: scrollRef.current.scrollHeight,
@@ -30,6 +37,62 @@ export default function App() {
       autoGreet();
     }
   }, [customer]);
+
+  // Poll for agent messages when in agent mode
+  useEffect(() => {
+    if (!agentMode || !conversationId || agentClosed) {
+      if (pollRef.current) clearInterval(pollRef.current);
+      return;
+    }
+
+    async function poll() {
+      try {
+        const res = await fetch(`${API_BASE}/agent/poll`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            conversation_id: conversationId,
+            last_seen: lastSeenRef.current,
+          }),
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+
+        if (data.messages && data.messages.length > 0) {
+          const newMsgs = data.messages.map((m) => ({
+            role: "agent",
+            content: m.text,
+            agentName: m.sender,
+            sequenceId: m.sequence_id,
+          }));
+          setMessages((prev) => [...prev, ...newMsgs]);
+          lastSeenRef.current = Math.max(
+            ...data.messages.map((m) => m.sequence_id)
+          );
+        }
+
+        if (data.closed) {
+          setAgentClosed(true);
+          setMessages((prev) => [
+            ...prev,
+            {
+              role: "system",
+              content: "The agent has ended the conversation. You can continue chatting with our bot.",
+            },
+          ]);
+          setAgentMode(false);
+          setConversationId(null);
+          lastSeenRef.current = 0;
+        }
+      } catch {
+        // polling error, will retry
+      }
+    }
+
+    poll();
+    pollRef.current = setInterval(poll, 3000);
+    return () => clearInterval(pollRef.current);
+  }, [agentMode, conversationId, agentClosed]);
 
   async function autoGreet() {
     setIsTyping(true);
@@ -107,9 +170,36 @@ export default function App() {
     const userMsg = { role: "user", content: msg };
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
-    setIsTyping(true);
 
-    const history = messages.map((m) => ({ role: m.role, content: m.content }));
+    // Agent mode: forward to SalesIQ
+    if (agentMode && conversationId) {
+      try {
+        await fetch(`${API_BASE}/agent/send`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            conversation_id: conversationId,
+            message: msg,
+          }),
+        });
+      } catch {
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "system",
+            content: "Could not send message to agent. Please try again.",
+          },
+        ]);
+      }
+      return;
+    }
+
+    // Bot mode: send to LLM
+    setIsTyping(true);
+    const history = messages.map((m) => ({
+      role: m.role === "agent" ? "assistant" : m.role,
+      content: m.content,
+    })).filter((m) => m.role === "user" || m.role === "assistant");
 
     try {
       const res = await fetch(`${API_BASE}/chat`, {
@@ -139,6 +229,14 @@ export default function App() {
             : null,
       };
       setMessages((prev) => [...prev, botMsg]);
+
+      // Enter agent mode if escalated
+      if (data.action === "ESCALATE" && data.conversation_id) {
+        setAgentMode(true);
+        setConversationId(data.conversation_id);
+        setAgentClosed(false);
+        lastSeenRef.current = 0;
+      }
     } catch {
       setMessages((prev) => [
         ...prev,
@@ -290,7 +388,7 @@ export default function App() {
                     key={label}
                     className="sidebar-action-btn"
                     onClick={() => { sendMessage(label); setSidebarOpen(false); }}
-                    disabled={isTyping}
+                    disabled={isTyping || agentMode}
                   >
                     {label}
                   </button>
@@ -305,6 +403,10 @@ export default function App() {
                 setCustomer(null);
                 setMessages([]);
                 setInput("");
+                setAgentMode(false);
+                setConversationId(null);
+                setAgentClosed(false);
+                lastSeenRef.current = 0;
                 greetedRef.current = false;
               }}
             >
@@ -325,65 +427,80 @@ export default function App() {
                 <path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
               </svg>
             </button>
-            <div className="avatar">RF</div>
+            <div className={`avatar ${agentMode ? "avatar-agent" : ""}`}>
+              {agentMode ? "AG" : "RF"}
+            </div>
             <div className="header-info">
-              <div className="header-title">Ram Fincorp Support</div>
+              <div className="header-title">
+                {agentMode ? "Live Agent" : "Ram Fincorp Support"}
+              </div>
               <div className="header-status">
-                <span className="status-dot" />
-                Online
+                <span className={`status-dot ${agentMode ? "status-dot-agent" : ""}`} />
+                {agentMode ? "Connected to agent" : "Online"}
               </div>
             </div>
           </header>
 
           <div className="chat" ref={scrollRef}>
             {messages.map((m, i) => (
-              <div key={i} className={`row ${m.role}`}>
-                {m.role === "assistant" && <div className="bot-avatar">RF</div>}
-                <div className={`bubble ${m.role}`}>
-                  {m.content}
+              <div key={i} className={`row ${m.role === "agent" ? "assistant" : m.role}`}>
+                {(m.role === "assistant" || m.role === "agent") && (
+                  <div className={`bot-avatar ${m.role === "agent" ? "agent-avatar" : ""}`}>
+                    {m.role === "agent" ? "AG" : "RF"}
+                  </div>
+                )}
+                {m.role === "system" ? (
+                  <div className="system-msg">{m.content}</div>
+                ) : (
+                  <div className={`bubble ${m.role === "agent" ? "assistant agent-bubble" : m.role}`}>
+                    {m.role === "agent" && m.agentName && (
+                      <div className="agent-name">{m.agentName}</div>
+                    )}
+                    {m.content}
 
-                  {m.options && (
-                    <div className="quick-options">
-                      {m.options.map((opt) => (
-                        <button
-                          key={opt}
-                          className="quick-opt-btn"
-                          onClick={() => sendMessage(opt)}
-                          disabled={isTyping}
-                        >
-                          {opt}
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                    {m.options && (
+                      <div className="quick-options">
+                        {m.options.map((opt) => (
+                          <button
+                            key={opt}
+                            className="quick-opt-btn"
+                            onClick={() => sendMessage(opt)}
+                            disabled={isTyping}
+                          >
+                            {opt}
+                          </button>
+                        ))}
+                      </div>
+                    )}
 
-                  {m.existingTicket && (
-                    <div className="ticket-card">
-                      <div className="ticket-title">
-                        &#128203; Existing ticket found
+                    {m.existingTicket && (
+                      <div className="ticket-card">
+                        <div className="ticket-title">
+                          &#128203; Existing ticket found
+                        </div>
+                        <div className="ticket-body">
+                          We already have an open ticket
+                          {m.existingTicket.ticketNumber &&
+                            ` (#${m.existingTicket.ticketNumber})`}{" "}
+                          for this issue. Our team is on it.
+                        </div>
                       </div>
-                      <div className="ticket-body">
-                        We already have an open ticket
-                        {m.existingTicket.ticketNumber &&
-                          ` (#${m.existingTicket.ticketNumber})`}{" "}
-                        for this issue. Our team is on it.
-                      </div>
-                    </div>
-                  )}
+                    )}
 
-                  {m.escalation && (
-                    <div className="escalation-card">
-                      <div className="escalation-title">
-                        &#9888; Query escalated to CX team
+                    {m.escalation && (
+                      <div className="escalation-card">
+                        <div className="escalation-title">
+                          &#9888; Connecting you to a live agent
+                        </div>
+                        <div className="escalation-body">
+                          Your query ({" "}
+                          <strong>{m.escalation.category}</strong>) is being
+                          transferred to our support team. Please wait...
+                        </div>
                       </div>
-                      <div className="escalation-body">
-                        Your query has been categorised as{" "}
-                        <strong>{m.escalation.category}</strong>. Our CX team
-                        will reach out to you shortly.
-                      </div>
-                    </div>
-                  )}
-                </div>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
 
@@ -403,7 +520,7 @@ export default function App() {
             <input
               className="composer-input"
               type="text"
-              placeholder="Type your message..."
+              placeholder={agentMode ? "Type a message to the agent..." : "Type your message..."}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
