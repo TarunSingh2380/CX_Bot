@@ -15,7 +15,7 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const scrollRef = useRef(null);
 
-  // Agent mode state
+  // Agent mode state (kept but disconnected from ESCALATE flow)
   const [agentMode, setAgentMode] = useState(false);
   const [conversationId, setConversationId] = useState(null);
   const [agentClosed, setAgentClosed] = useState(false);
@@ -171,7 +171,7 @@ export default function App() {
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
 
-    // Agent mode: forward to SalesIQ
+    // Agent mode: forward to SalesIQ (kept but not triggered by ESCALATE now)
     if (agentMode && conversationId) {
       try {
         await fetch(`${API_BASE}/agent/send`, {
@@ -194,7 +194,7 @@ export default function App() {
       return;
     }
 
-    // Bot mode: send to LLM
+    // Bot mode: send to /chat
     setIsTyping(true);
     const history = messages.map((m) => ({
       role: m.role === "agent" ? "assistant" : m.role,
@@ -219,24 +219,16 @@ export default function App() {
         role: "assistant",
         content: data.reply,
         options: data.options || null,
-        escalation:
-          data.action === "ESCALATE"
-            ? { category: data.category || "Other / Complex Query" }
-            : null,
         existingTicket:
           data.action === "EXISTING_TICKET"
             ? { ticketNumber: data.ticket_number }
             : null,
+        ticketCreated:
+          data.action === "ESCALATE" && data.ticket_number
+            ? { ticketNumber: data.ticket_number }
+            : null,
       };
       setMessages((prev) => [...prev, botMsg]);
-
-      // Enter agent mode if escalated
-      if (data.action === "ESCALATE" && data.conversation_id) {
-        setAgentMode(true);
-        setConversationId(data.conversation_id);
-        setAgentClosed(false);
-        lastSeenRef.current = 0;
-      }
     } catch {
       setMessages((prev) => [
         ...prev,
@@ -382,18 +374,33 @@ export default function App() {
           <div className="sidebar-section">
             <div className="sidebar-label">Quick Actions</div>
             <div className="sidebar-actions">
-              {["Check Loan Details", "View Payment History", "Request NOC", "Other Query"].map(
-                (label) => (
-                  <button
-                    key={label}
-                    className="sidebar-action-btn"
-                    onClick={() => { sendMessage(label); setSidebarOpen(false); }}
-                    disabled={isTyping || agentMode}
-                  >
-                    {label}
-                  </button>
-                )
-              )}
+              {[
+                "Loan Status",
+                "EMI & Repayment",
+                "NACH / Auto-Debit",
+                "Loan Closure & NOC",
+                "Refunds",
+                "Cooling-Off Period",
+                "Credit Bureau / CIBIL",
+                "Re-Loan / Eligibility",
+                "Customer Profile",
+                "Technical Issues",
+                "Payments & Transactions",
+                "EMI & Interest Calculator",
+                "Other",
+              ].map((cat) => (
+                <button
+                  key={cat}
+                  className="sidebar-action-btn"
+                  onClick={() => {
+                    setSidebarOpen(false);
+                    sendMessage(cat);
+                  }}
+                  disabled={isTyping}
+                >
+                  {cat}
+                </button>
+              ))}
             </div>
           </div>
           <div className="sidebar-footer">
@@ -476,7 +483,7 @@ export default function App() {
                     {m.existingTicket && (
                       <div className="ticket-card">
                         <div className="ticket-title">
-                          &#128203; Existing ticket found
+                          Existing ticket found
                         </div>
                         <div className="ticket-body">
                           We already have an open ticket
@@ -487,15 +494,14 @@ export default function App() {
                       </div>
                     )}
 
-                    {m.escalation && (
-                      <div className="escalation-card">
-                        <div className="escalation-title">
-                          &#9888; Connecting you to a live agent
+                    {m.ticketCreated && (
+                      <div className="ticket-created-card">
+                        <div className="ticket-created-title">
+                          Support Ticket Created
                         </div>
-                        <div className="escalation-body">
-                          Your query ({" "}
-                          <strong>{m.escalation.category}</strong>) is being
-                          transferred to our support team. Please wait...
+                        <div className="ticket-created-body">
+                          Ticket <strong>#{m.ticketCreated.ticketNumber}</strong> has been
+                          created. Our team will review and get back to you.
                         </div>
                       </div>
                     )}

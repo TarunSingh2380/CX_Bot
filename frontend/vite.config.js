@@ -7,5 +7,12 @@ export default defineConfig({
   server: {
     port: 3000,
     open: true,
+    proxy: {
+      "/identify": "http://localhost:8000",
+      "/chat": "http://localhost:8000",
+      "/categories": "http://localhost:8000",
+      "/agent": "http://localhost:8000",
+      "/api": "http://localhost:8000",
+    },
   },
 });

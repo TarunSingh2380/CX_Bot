@@ -7,11 +7,14 @@ Flow:
   3. Combine into a single context string, cache for 5 min.
 """
 
+import logging
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
 import customer_api
 import zoho
+
+log = logging.getLogger("enrichment")
 
 _cache: Dict[str, Tuple[float, str, Dict[str, Optional[str]]]] = {}
 CACHE_TTL = 300
@@ -128,7 +131,10 @@ def build_customer_context(
     now = time.time()
     cached = _cache.get(key)
     if cached and now < cached[0]:
+        log.info("Using cached context for %s", key)
         return cached[1], cached[2]
+
+    log.info("Building context for email=%s phone=%s", email, phone)
 
     # Phase 1: identify user → leadID + email
     profile = customer_api.identify_user(email=email, phone=phone)
@@ -137,8 +143,11 @@ def build_customer_context(
     resolved_email = cust["email"] or email
 
     if not lead_id:
+        log.info("Customer not found — returning empty context")
         _cache[key] = (now + CACHE_TTL, "", empty_data)
         return "", empty_data
+
+    log.info("Customer identified — leadID=%s, fetching data...", lead_id)
 
     # Phase 2: parallel fetches (Python requests are blocking, but these are
     # fast API calls so sequential is fine for now; can add threading later).
@@ -149,6 +158,9 @@ def build_customer_context(
         zoho.get_open_tickets_with_context(resolved_email)
         if resolved_email else []
     )
+    log.info("Data fetched — loan=%s txns=%d noc=%s tickets=%d",
+             "yes" if loan else "no", len(txns or []),
+             "yes" if noc else "no", len(tickets))
 
     sections: List[str] = [
         "--- CUSTOMER CONTEXT (retrieved from Ram Fincorp internal systems) ---",
@@ -177,4 +189,5 @@ def build_customer_context(
 
     context = "\n".join(sections)
     _cache[key] = (now + CACHE_TTL, context, cust)
+    log.info("Context built — %d chars, cached for %ds", len(context), CACHE_TTL)
     return context, cust

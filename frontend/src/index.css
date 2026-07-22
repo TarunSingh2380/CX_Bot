@@ -308,6 +308,8 @@ body {
   flex-direction: column;
   gap: 6px;
   margin-top: 8px;
+  max-height: 360px;
+  overflow-y: auto;
 }
 
 .sidebar-action-btn {
@@ -640,6 +642,29 @@ body {
   cursor: not-allowed;
 }
 
+/* Ticket created card */
+.ticket-created-card {
+  margin-top: 10px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #f0fdf4;
+  border: 1px solid #86efac;
+  border-left: 4px solid #22c55e;
+}
+
+.ticket-created-title {
+  font-weight: 700;
+  font-size: 13px;
+  color: #166534;
+  margin-bottom: 4px;
+}
+
+.ticket-created-body {
+  font-size: 13px;
+  color: #14532d;
+  line-height: 1.4;
+}
+
 /* Agent mode */
 .avatar-agent {
   background: #7c3aed;
@@ -857,7 +882,9 @@ body {
 
   /* Cards */
   .escalation-card,
-  .ticket-card {
+  .ticket-card,
+  .ticket-created-card {
     padding: 10px 12px;
   }
+
 }

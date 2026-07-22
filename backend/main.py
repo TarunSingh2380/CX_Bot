@@ -2,8 +2,9 @@
 Ram Fincorp — Customer Support Chatbot Backend
 
 Endpoints:
-  POST /identify  — look up customer by email/phone, pre-fetch all context
-  POST /chat      — handle chat with tiered LLM logic
+  POST /identify    — look up customer by email/phone, pre-fetch all context
+  GET  /categories  — predefined categories with common questions
+  POST /chat        — handle chat with tiered LLM logic + ticket creation
 """
 
 import json
@@ -31,7 +32,8 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 import customer_api  # noqa: E402
 import enrichment  # noqa: E402
-import salesiq  # noqa: E402
+import salesiq  # noqa: E402  — kept for future use, disconnected from flow
+import zoho  # noqa: E402
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 MODEL = "gpt-5-mini"
@@ -46,6 +48,155 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ---------------------------------------------------------------------------
+# Categories & common questions
+# ---------------------------------------------------------------------------
+CATEGORIES = [
+    {
+        "id": "loan_status",
+        "name": "Loan Status",
+        "questions": [
+            "What is the status of my loan application?",
+            "Has my loan been approved?",
+            "Why is my loan still under review?",
+            "When will my loan be disbursed?",
+            "My application shows Disbursed but I have not received the money.",
+            "Why was my loan application rejected?",
+            "Can I reapply after rejection?",
+        ],
+    },
+    {
+        "id": "emi_repayment",
+        "name": "EMI & Repayment",
+        "questions": [
+            "What is my next EMI due date?",
+            "How much EMI do I need to pay?",
+            "What is my outstanding loan amount?",
+            "How can I make a payment?",
+            "My payment is not reflecting.",
+            "I paid my EMI but received a bounce charge.",
+            "Why has a penalty been charged?",
+            "Can I pay my EMI before the due date?",
+            "Can I close my loan early?",
+        ],
+    },
+    {
+        "id": "nach_autodebit",
+        "name": "NACH / Auto-Debit",
+        "questions": [
+            "What is NACH?",
+            "Why did my auto-debit fail?",
+            "How can I update my bank account?",
+            "How can I cancel auto-debit?",
+        ],
+    },
+    {
+        "id": "loan_closure_noc",
+        "name": "Loan Closure & NOC",
+        "questions": [
+            "Is my loan closed?",
+            "How can I download my NOC?",
+            "I have paid my loan but it still shows active.",
+            "When will my NOC be generated?",
+            "How long does it take to update loan closure?",
+        ],
+    },
+    {
+        "id": "refunds",
+        "name": "Refunds",
+        "questions": [
+            "When will I receive my refund?",
+            "Why was money deducted twice?",
+            "How can I request a refund?",
+            "What is the refund timeline?",
+        ],
+    },
+    {
+        "id": "cooling_off",
+        "name": "Cooling-Off Period",
+        "questions": [
+            "What is the cooling-off period?",
+            "Can I cancel my loan during the cooling-off period?",
+            "I repaid within the cooling-off period. Why is my loan still active?",
+        ],
+    },
+    {
+        "id": "cibil",
+        "name": "Credit Bureau / CIBIL",
+        "questions": [
+            "When will my CIBIL be updated?",
+            "Why is my loan showing active in CIBIL?",
+            "How can I raise a CIBIL correction request?",
+            "My CIBIL score has decreased. Why?",
+        ],
+    },
+    {
+        "id": "reloan",
+        "name": "Re-Loan / Eligibility",
+        "questions": [
+            "Am I eligible for another loan?",
+            "Why am I not able to apply for a re-loan?",
+            "How much loan can I get?",
+            "How is my loan eligibility calculated?",
+        ],
+    },
+    {
+        "id": "profile",
+        "name": "Customer Profile",
+        "questions": [
+            "How can I update my mobile number?",
+            "How can I update my email ID?",
+            "How can I update my bank account details?",
+            "How can I update my PAN card details?",
+        ],
+    },
+    {
+        "id": "technical",
+        "name": "Technical Issues",
+        "questions": [
+            "OTP not received.",
+            "App is not opening.",
+            "Login issue.",
+            "Payment link not working.",
+            "Unable to upload documents.",
+            "Sanction letter not downloading.",
+        ],
+    },
+    {
+        "id": "payments",
+        "name": "Payments & Transactions",
+        "questions": [
+            "Show my recent transactions.",
+            "What is my disbursed amount?",
+        ],
+    },
+    {
+        "id": "calculations",
+        "name": "EMI & Interest Calculator",
+        "questions": [
+            "Calculate my EMI.",
+            "What is my interest rate?",
+        ],
+    },
+    {
+        "id": "other",
+        "name": "Other",
+        "questions": [],
+    },
+]
+
+CATEGORY_NAMES = [c["name"] for c in CATEGORIES]
+
+GREETING_CATEGORIES = [
+    "Loan Status",
+    "EMI & Repayment",
+    "Loan Closure & NOC",
+    "Payments & Transactions",
+    "EMI & Interest Calculator",
+    "Other",
+]
 
 
 # ---------------------------------------------------------------------------
@@ -74,12 +225,15 @@ class ChatRequest(BaseModel):
     conversation_history: List[Message] = []
     email: Optional[str] = None
     phone: Optional[str] = None
+    category: Optional[str] = None
 
 
 VALID_ACTIONS = {
     "GREETING", "RESOLVE", "ESCALATE", "CLARIFY",
     "EXISTING_TICKET", "SEND_NOC",
 }
+# EXISTING_TICKET is kept in VALID_ACTIONS for backwards compat but is now
+# handled in code (not by the LLM) — see _check_existing_ticket() below.
 
 
 class ChatResponse(BaseModel):
@@ -89,11 +243,10 @@ class ChatResponse(BaseModel):
     confidence: int
     ticket_number: Optional[str] = None
     options: Optional[List[str]] = None
-    conversation_id: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
-# Active agent sessions: customer_key → conversation_id
+# SalesIQ agent sessions (kept but disconnected from main flow)
 # ---------------------------------------------------------------------------
 _agent_sessions: Dict[str, str] = {}
 
@@ -118,17 +271,6 @@ class AgentSendRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Predefined quick-action options
-# ---------------------------------------------------------------------------
-QUICK_OPTIONS = [
-    "Check Loan Details",
-    "View Payment History",
-    "Request NOC",
-    "Other Query",
-]
-
-
-# ---------------------------------------------------------------------------
 # System prompt
 # ---------------------------------------------------------------------------
 SYSTEM_PROMPT = """\
@@ -144,11 +286,13 @@ questions. You can handle English and Hinglish (Hindi + English mixed) messages.
 
 For every customer message, you must respond with a JSON object in this exact format:
 {
-  "action": one of "GREETING" | "RESOLVE" | "EXISTING_TICKET" | "CLARIFY" | "ESCALATE" | "SEND_NOC",
+  "action": one of "GREETING" | "RESOLVE" | "CLARIFY" | "ESCALATE" | "SEND_NOC",
   "reply": "your message to the customer",
-  "category": "escalation category or null",
+  "category": "query category or null",
   "confidence": 0-100,
-  "ticket_number": "matching ticket number or null"
+  "ticket_number": "matching ticket number or null",
+  "ticket_subject": "short subject for support ticket (only when ESCALATE)",
+  "ticket_description": "detailed description for support ticket (only when ESCALATE)"
 }
 
 Follow these decision tiers IN ORDER:
@@ -156,57 +300,57 @@ Follow these decision tiers IN ORDER:
 TIER 0 — GREETING:
   If the user sends a greeting (hi, hello, hey, namaste, haan, etc.), respond \
 with a friendly welcome and ask how you can help. Set action to "GREETING". \
-The system will automatically show quick-action buttons — do NOT list the \
-options in your reply text.
+The system will automatically show category buttons — do NOT list the \
+categories in your reply text.
 
-TIER 1 — QUICK OPTIONS (Loan Details / Payment History / NOC):
-  If the user asks about their loan details, payment history, or NOC:
-  - For LOAN DETAILS: summarize the key loan information from the \
-"LOAN DETAILS" section of the customer context (loan amount, disbursed amount, \
-outstanding, status, EMIs paid, repayment date, etc.). Set action to "RESOLVE".
-  - For PAYMENT HISTORY: summarize the recent transactions from the \
-"RECENT PAYMENTS" section. Show dates, amounts, types clearly. Set action to "RESOLVE".
-  - For NOC REQUEST: check the "NOC ELIGIBILITY" section.
-    - If ELIGIBLE: tell the customer they are eligible and ask "Shall I send \
-the No Dues Certificate to your registered email?" Set action to "RESOLVE".
-    - If NOT ELIGIBLE: explain they are not currently eligible for NOC. \
-Set action to "RESOLVE".
-  - For "Other Query": ask the customer to describe their query. Set action to "RESOLVE".
-
-TIER 1.5 — SEND NOC:
+TIER 1 — SEND_NOC:
   If the customer confirms they want the NOC sent (after you told them they \
 are eligible), set action to "SEND_NOC". The system will trigger the NOC \
 delivery. Your reply should say something like "Sending your No Dues Certificate now..."
 
-TIER 2 — EXISTING TICKET:
-  For free-text queries, check if the customer's query is similar to any of \
-their OPEN support tickets in the customer context. Compare against ticket \
-subject, description, and thread content. If there is a match:
-  - Set action to "EXISTING_TICKET"
-  - In your reply, tell them you found an existing ticket, mention the ticket \
-number, summarize the status and last agent response if any.
-  - Set ticket_number to the matching ticket number.
-
-TIER 3 — RESOLVE (high confidence only):
-  If no existing ticket matches AND you can answer from the customer context \
-or general finance knowledge WITH confidence > 90, resolve directly.
+TIER 2 — RESOLVE (USE THIS whenever customer data is available):
+  If the customer context below contains data that can answer the query, \
+you MUST resolve directly. Do NOT escalate when you have the data.
   - Set action to "RESOLVE"
+  - For LOAN STATUS queries (application status, approved, disbursed, rejected, \
+under review): look at LOAN DETAILS — the "Status" field is the answer. \
+If you see a Status like "Active", "Closed", "Disbursed", etc., RESOLVE it.
+  - For EMI & REPAYMENT queries (next EMI, outstanding, paid amount): look at \
+LOAN DETAILS for amounts/dates and RECENT PAYMENTS for transaction history.
+  - For LOAN CLOSURE & NOC queries: use NOC ELIGIBILITY + loan Status.
+  - For PAYMENTS queries: use RECENT PAYMENTS data.
+  - For EMI CALCULATOR queries: use the loan amount, tenure, and interest rate \
+from LOAN DETAILS to calculate.
+  - ONLY use data from the customer context. Never invent details.
+  - Set confidence to 95+ when the data clearly answers the question.
 
-TIER 4 — CLARIFY:
-  If the query is too vague or unclear, ask ONE specific follow-up question.
+TIER 3 — CLARIFY:
+  If the query is too vague or unclear, ask ONE specific follow-up question \
+to clearly understand what the customer needs. Do NOT escalate vague queries — \
+always clarify first.
   - Set action to "CLARIFY"
 
-TIER 5 — ESCALATE:
-  If you cannot resolve with high confidence, categorize the query and \
-escalate. Pick the most relevant category:
-  1. Payment Dispute
-  2. Waiver / Penalty Request
-  3. Loan Closure / NOC
-  4. Disbursement Issue
-  5. Legal / Harassment Complaint
-  6. Account / App Issue
-  7. Other / Complex Query
-  Set action to "ESCALATE", category to the chosen one.
+TIER 4 — ESCALATE (create support ticket):
+  If you cannot resolve with confidence >= 95, OR you don't have sufficient \
+data to answer the query accurately, escalate by creating a support ticket:
+  - Set action to "ESCALATE"
+  - Set category to the most relevant category
+  - Set ticket_subject: Write a short, clear, human-readable subject (max 80 chars). \
+Write it as a support agent would — e.g. "Customer asking about next EMI due date" \
+or "NACH cancellation request". Do NOT include loan numbers, customer IDs, or \
+technical codes in the subject. No prefixes like "[TEST]".
+  - Set ticket_description: Write a clean, well-structured ticket body that a \
+support agent can read and act on quickly. Format it like this:
+    1. **Customer Query**: What the customer is asking in plain language (1-2 sentences).
+    2. **Customer Details**: Name/ID, email, phone — one line each.
+    3. **Relevant Account Info**: Only the key details relevant to this specific \
+query — don't dump all data. Use bullet points with labels.
+    4. **What's Missing**: What data or action is needed to resolve this.
+    5. **Suggested Action**: What the support agent should do.
+    Use line breaks between sections. Write professionally but concisely. \
+Do NOT dump raw API data or internal field names.
+  - Your reply should tell the customer that a support ticket is being created \
+for their query and our team will look into it.
 
 Additional rules:
 - Always respond in the same language the customer used (English or Hinglish).
@@ -214,20 +358,39 @@ Additional rules:
 - Never make up specific account details, balances, or dates — only use data \
 from the customer context provided below.
 - When showing financial data, format amounts with Rs and commas.
-- Confidence reflects how sure you are (90+ = very sure, below 70 = uncertain).
+- CRITICAL: If the LOAN DETAILS section shows data (Status, Loan Amount, etc.), \
+you MUST use it to answer loan-related queries — do NOT escalate.
+- Only ESCALATE when the customer context genuinely does not contain the data \
+needed to answer, or when the customer needs a human action (update profile, \
+raise dispute, etc.).
+- Do not guess or provide generic answers when specific data is needed — but \
+if the data IS in the context, use it confidently.
 
 Respond ONLY with the JSON object, no extra text.\
 """
 
-VALID_CATEGORIES = {
-    "Payment Dispute",
-    "Waiver / Penalty Request",
-    "Loan Closure / NOC",
-    "Disbursement Issue",
-    "Legal / Harassment Complaint",
-    "Account / App Issue",
-    "Other / Complex Query",
-}
+
+def _check_existing_ticket(
+    new_subject: str, open_tickets: List[Dict[str, Any]]
+) -> Optional[Dict[str, Any]]:
+    """Check if an open ticket already covers this issue (subject-based match).
+    Returns the matching ticket dict or None."""
+    if not open_tickets or not new_subject:
+        return None
+    new_words = set(new_subject.lower().split())
+    for tk in open_tickets:
+        tk_subject = (tk.get("subject") or "").lower()
+        tk_words = set(tk_subject.split())
+        common = new_words & tk_words
+        noise = {"for", "the", "a", "an", "of", "and", "is", "in", "to",
+                 "my", "on", "with", "not", "loan", "customer", "request",
+                 "asking", "about", "need", "status", "query", "check"}
+        meaningful = common - noise
+        if len(meaningful) >= 3:
+            log.info("[ticket-match] Matched existing ticket #%s — common words: %s",
+                     tk.get("number"), meaningful)
+            return tk
+    return None
 
 
 def _fallback_response() -> ChatResponse:
@@ -244,7 +407,8 @@ def _fallback_response() -> ChatResponse:
     )
 
 
-def _parse_llm_json(raw: str) -> ChatResponse:
+def _parse_llm_json(raw: str) -> tuple:
+    """Parse LLM JSON response. Returns (ChatResponse, extra_dict)."""
     text = raw.strip()
     if text.startswith("```"):
         text = text.strip("`")
@@ -269,8 +433,6 @@ def _parse_llm_json(raw: str) -> ChatResponse:
         category = None
     else:
         category = str(category).strip()
-        if action != "ESCALATE" or category not in VALID_CATEGORIES:
-            category = category if category in VALID_CATEGORIES else None
 
     try:
         confidence = int(round(float(data.get("confidence", 50))))
@@ -288,9 +450,9 @@ def _parse_llm_json(raw: str) -> ChatResponse:
 
     options = None
     if action == "GREETING":
-        options = QUICK_OPTIONS
+        options = GREETING_CATEGORIES
 
-    return ChatResponse(
+    response = ChatResponse(
         action=action,
         reply=reply,
         category=category,
@@ -298,6 +460,13 @@ def _parse_llm_json(raw: str) -> ChatResponse:
         ticket_number=ticket_number,
         options=options,
     )
+
+    extra = {
+        "ticket_subject": str(data.get("ticket_subject", "")).strip(),
+        "ticket_description": str(data.get("ticket_description", "")).strip(),
+    }
+
+    return response, extra
 
 
 # ---------------------------------------------------------------------------
@@ -308,9 +477,14 @@ def health():
     return {"status": "ok", "service": "Ram Fincorp Support Chatbot"}
 
 
+@app.get("/categories")
+def get_categories():
+    log.info("[categories] Serving %d categories", len(CATEGORIES))
+    return CATEGORIES
+
+
 @app.post("/identify", response_model=IdentifyResponse)
 def identify(req: IdentifyRequest) -> IdentifyResponse:
-    """Customer enters email/phone → we identify and pre-warm the context cache."""
     log.info("[identify] email=%s phone=%s", req.email, req.phone)
     context, cust = enrichment.build_customer_context(
         email=req.email, phone=req.phone
@@ -330,13 +504,51 @@ def identify(req: IdentifyRequest) -> IdentifyResponse:
 
 @app.post("/chat", response_model=ChatResponse)
 def chat(req: ChatRequest) -> ChatResponse:
-    log.info("[chat] message=%s | email=%s | phone=%s", req.message[:60], req.email, req.phone)
+    log.info("[chat] message=%s | email=%s | category=%s", req.message[:60], req.email, req.category)
+
+    # Check if user selected a category name — return its questions, no LLM needed
+    category_match = next(
+        (c for c in CATEGORIES if c["name"].lower() == req.message.strip().lower()),
+        None,
+    )
+    if category_match:
+        if category_match["id"] == "other":
+            log.info("[chat] 'Other' selected — asking user to type query")
+            return ChatResponse(
+                action="RESOLVE",
+                reply="Sure! Please type your question or describe your issue, and I'll do my best to help. If I'm unable to resolve it, I'll create a support ticket for you.",
+                category="Other",
+                confidence=100,
+                ticket_number=None,
+                options=None,
+            )
+        log.info("[chat] Category selected: %s — returning %d questions",
+                 category_match["name"], len(category_match["questions"]))
+        return ChatResponse(
+            action="RESOLVE",
+            reply=f"Here are common questions for {category_match['name']}. You can select one or type your own query:",
+            category=category_match["name"],
+            confidence=100,
+            ticket_number=None,
+            options=category_match["questions"],
+        )
+
     context, cust = enrichment.build_customer_context(
         email=req.email, phone=req.phone
     )
-    system_content = SYSTEM_PROMPT
+    log.info("[chat] Context length=%d chars | has_context=%s", len(context), bool(context))
     if context:
-        system_content = f"{SYSTEM_PROMPT}\n\n{context}"
+        for marker in ["LOAN DETAILS", "RECENT PAYMENTS", "NOC ELIGIBILITY"]:
+            if f"(no " in context.split(marker)[-1][:60] if marker in context else "":
+                log.info("[chat] Context section '%s' is EMPTY", marker)
+            elif marker in context:
+                log.info("[chat] Context section '%s' has data", marker)
+
+    system_content = SYSTEM_PROMPT
+    if req.category:
+        system_content += f"\n\nThe customer selected the category: {req.category}"
+    if context:
+        system_content = f"{system_content}\n\n{context}"
 
     messages = [{"role": "system", "content": system_content}]
     for m in req.conversation_history:
@@ -351,9 +563,23 @@ def chat(req: ChatRequest) -> ChatResponse:
             response_format={"type": "json_object"},
         )
         raw = completion.choices[0].message.content or ""
-        response = _parse_llm_json(raw)
+        log.info("[chat] Raw LLM output: %s", raw[:500])
+        response, extra = _parse_llm_json(raw)
         log.info("[chat] LLM response — action=%s confidence=%s category=%s",
                  response.action, response.confidence, response.category)
+
+        if response.action == "RESOLVE":
+            log.info("[chat] RESOLVE — answering with confidence=%s", response.confidence)
+
+        if response.action == "CLARIFY":
+            log.info("[chat] CLARIFY — asking follow-up question")
+
+        if response.action == "EXISTING_TICKET":
+            log.info("[chat] LLM returned EXISTING_TICKET — converting to ESCALATE for code-based matching")
+            response.action = "ESCALATE"
+
+        if response.action == "GREETING":
+            log.info("[chat] GREETING — showing %d answerable categories", len(GREETING_CATEGORIES))
 
         # Intercept SEND_NOC: call the actual API and replace the reply.
         if response.action == "SEND_NOC" and cust.get("leadID"):
@@ -374,37 +600,62 @@ def chat(req: ChatRequest) -> ChatResponse:
                 )
                 response.action = "RESOLVE"
 
-        # Intercept ESCALATE: create SalesIQ conversation for live agent.
+        # Intercept ESCALATE: check for existing ticket first, then create.
         if response.action == "ESCALATE":
-            customer_name = cust.get("email") or cust.get("mobile") or "Customer"
             email = cust.get("email") or req.email or ""
-            phone = cust.get("mobile") or req.phone or ""
-            category = response.category or "Other / Complex Query"
-            question = f"[{category}] {req.message}"
+            category = response.category or req.category or "General Query"
 
-            log.info("[chat] ESCALATE — creating SalesIQ conversation | category=%s", category)
-            conv_id = salesiq.open_conversation(
-                name=customer_name, email=email, phone=phone, question=question,
-            )
-            if conv_id:
-                history_summary = "\n".join(
-                    f"{'Customer' if m.role == 'user' else 'Bot'}: {m.content}"
-                    for m in req.conversation_history[-6:]
-                )
-                context_msg = (
-                    f"Customer: {customer_name} ({email}, {phone})\n"
-                    f"Category: {category}\n"
-                    f"Issue: {req.message}\n\n"
-                    f"--- Recent conversation ---\n{history_summary}"
-                )
-                salesiq.send_visitor_message(conv_id, context_msg)
+            ticket_subject = extra.get("ticket_subject") or f"{category} — {req.message[:80]}"
+            ticket_description = extra.get("ticket_description") or req.message
 
-                key = _customer_key(req.email, req.phone)
-                _agent_sessions[key] = conv_id
-                response.conversation_id = conv_id
-                log.info("[chat] ESCALATE SUCCESS — conversation_id=%s", conv_id)
+            log.info("[chat] ESCALATE — category=%s", category)
+            log.info("[chat] ESCALATE — ticket_subject=%s", ticket_subject[:100])
+
+            open_tickets = zoho.get_open_tickets_with_context(email) if email else []
+            existing = _check_existing_ticket(ticket_subject, open_tickets)
+
+            if existing:
+                tk_num = existing.get("number") or existing.get("ticket_id")
+                log.info("[chat] ESCALATE → EXISTING_TICKET #%s", tk_num)
+                response.action = "EXISTING_TICKET"
+                response.ticket_number = str(tk_num)
+                response.reply = (
+                    f"I found an existing open ticket #{tk_num} for this issue. "
+                    f"Our team is already working on it and will update you soon."
+                )
             else:
-                log.error("[chat] ESCALATE FAILED — could not create SalesIQ conversation")
+                log.info("[chat] ESCALATE — no existing ticket match, creating new")
+                log.info("[chat] ESCALATE — ticket_description=%s", ticket_description[:150])
+                contact_id = zoho.find_or_create_contact(email) if email else None
+                log.info("[chat] ESCALATE — contact_id=%s for email=%s", contact_id, email)
+                if contact_id:
+                    ticket = zoho.create_ticket(
+                        contact_id=contact_id,
+                        email=email,
+                        subject=ticket_subject,
+                        description=ticket_description,
+                        category=category,
+                    )
+                    if ticket:
+                        response.ticket_number = ticket["number"]
+                        response.reply = (
+                            f"I've created a support ticket for your query. "
+                            f"Your ticket number is #{ticket['number']}. "
+                            f"Our team will review it and get back to you shortly."
+                        )
+                        log.info("[chat] ESCALATE SUCCESS — ticket #%s", ticket["number"])
+                    else:
+                        log.error("[chat] ESCALATE FAILED — ticket creation failed")
+                        response.reply = (
+                            "I'm sorry, I couldn't create a support ticket right now. "
+                            "Please try again or contact our support team directly."
+                        )
+                else:
+                    log.error("[chat] ESCALATE FAILED — could not find/create contact for %s", email)
+                    response.reply = (
+                        "I'm sorry, I couldn't create a support ticket right now. "
+                        "Please try again or contact our support team directly."
+                    )
 
         return response
     except Exception as exc:
@@ -413,11 +664,10 @@ def chat(req: ChatRequest) -> ChatResponse:
 
 
 # ---------------------------------------------------------------------------
-# Agent endpoints (polling + message forwarding)
+# SalesIQ agent endpoints (kept for future use, disconnected from ESCALATE)
 # ---------------------------------------------------------------------------
 @app.post("/agent/poll", response_model=AgentPollResponse)
 def agent_poll(req: AgentPollRequest) -> AgentPollResponse:
-    """Frontend polls this to get new agent messages from SalesIQ."""
     log.debug("[agent/poll] conv=%s last_seen=%s", req.conversation_id, req.last_seen)
     all_msgs = salesiq.get_messages(req.conversation_id)
 
@@ -453,7 +703,6 @@ def agent_poll(req: AgentPollRequest) -> AgentPollResponse:
 
 @app.post("/agent/send")
 def agent_send(req: AgentSendRequest):
-    """Forward customer message to SalesIQ conversation."""
     log.info("[agent/send] conv=%s | msg=%s", req.conversation_id, req.message[:80])
     success = salesiq.send_visitor_message(req.conversation_id, req.message)
     log.info("[agent/send] Result: %s", "SUCCESS" if success else "FAILED")

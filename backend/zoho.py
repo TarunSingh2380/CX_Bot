@@ -16,12 +16,15 @@ env vars are not set, the client is disabled and returns an empty result so the
 rest of the app keeps working.
 """
 
+import logging
 import os
 import re
 import time
 from typing import Any, Dict, List, Optional
 
 import requests
+
+log = logging.getLogger("zoho")
 
 # --- Configuration (from .env) --------------------------------------------
 ZOHO_DC = os.getenv("ZOHO_DC", "com").strip().lstrip(".")  # com | in | eu
@@ -31,6 +34,8 @@ ZOHO_CLIENT_SECRET = os.getenv("ZOHO_CLIENT_SECRET", "").strip()
 ZOHO_REFRESH_TOKEN = os.getenv("ZOHO_REFRESH_TOKEN", "").strip()
 
 # Bound the fan-out so a customer with many/long tickets can't explode cost.
+DESK_DEPARTMENT_ID = os.getenv("ZOHO_DESK_DEPARTMENT_ID", "").strip()
+DESK_ASSIGNEE_ID = os.getenv("ZOHO_DESK_ASSIGNEE_ID", "").strip()
 MAX_OPEN_TICKETS = int(os.getenv("ZOHO_MAX_OPEN_TICKETS", "5"))
 MAX_THREADS_PER_TICKET = int(os.getenv("ZOHO_MAX_THREADS_PER_TICKET", "20"))
 HTTP_TIMEOUT = 20  # seconds
@@ -219,5 +224,84 @@ def get_open_tickets_with_context(email: str) -> List[Dict[str, Any]]:
         return results
 
     except Exception as exc:  # noqa: BLE001 — enrichment must never break chat
-        print(f"[zoho] error fetching tickets for {email}: {exc}")
+        log.error("error fetching tickets for %s: %s", email, exc)
         return []
+
+
+def find_or_create_contact(email: str) -> Optional[str]:
+    """Search for a Desk contact by email; create one if not found."""
+    if not is_configured() or not email:
+        return None
+    try:
+        result = _get("/contacts/search", {"email": email})
+        if result and result.get("data"):
+            contact_id = result["data"][0].get("id")
+            log.info("Contact found for %s: %s", email, contact_id)
+            return contact_id
+
+        log.info("Contact not found for %s, creating...", email)
+        resp = requests.post(
+            f"{_api_base()}/contacts",
+            headers={**_headers(), "Content-Type": "application/json"},
+            json={"lastName": email.split("@")[0], "email": email},
+            timeout=HTTP_TIMEOUT,
+        )
+        if resp.status_code in (200, 201):
+            contact_id = resp.json().get("id")
+            log.info("Contact created: %s", contact_id)
+            return contact_id
+        log.error("Contact creation failed: %s %s", resp.status_code, resp.text[:200])
+        return None
+    except Exception as exc:
+        log.error("find_or_create_contact error: %s", exc)
+        return None
+
+
+def create_ticket(
+    contact_id: str,
+    email: str,
+    subject: str,
+    description: str,
+    category: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """Create a Zoho Desk ticket. Returns {id, number, status} or None."""
+    if not is_configured() or not contact_id:
+        return None
+    dept = DESK_DEPARTMENT_ID
+    if not dept:
+        log.error("ZOHO_DESK_DEPARTMENT_ID not set")
+        return None
+    try:
+        payload: Dict[str, Any] = {
+            "subject": subject[:255],
+            "description": description,
+            "departmentId": dept,
+            "contactId": contact_id,
+            "email": email,
+            "priority": "Medium",
+            "status": "Open",
+            "channel": "Web",
+        }
+        if DESK_ASSIGNEE_ID:
+            payload["assigneeId"] = DESK_ASSIGNEE_ID
+        log.info("Creating ticket: %s", subject[:80])
+        resp = requests.post(
+            f"{_api_base()}/tickets",
+            headers={**_headers(), "Content-Type": "application/json"},
+            json=payload,
+            timeout=HTTP_TIMEOUT,
+        )
+        if resp.status_code in (200, 201):
+            data = resp.json()
+            ticket = {
+                "id": data.get("id"),
+                "number": data.get("ticketNumber"),
+                "status": data.get("status"),
+            }
+            log.info("Ticket created: #%s (id=%s)", ticket["number"], ticket["id"])
+            return ticket
+        log.error("Ticket creation failed: %s %s", resp.status_code, resp.text[:300])
+        return None
+    except Exception as exc:
+        log.error("create_ticket error: %s", exc)
+        return None
