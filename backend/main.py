@@ -198,6 +198,232 @@ GREETING_CATEGORIES = [
     "Other",
 ]
 
+# ---------------------------------------------------------------------------
+# FAQ Reference — predefined answers for categories without live API data.
+# Appended to the system prompt so the LLM uses these EXACT answers.
+# ---------------------------------------------------------------------------
+FAQ_REFERENCE = """
+--- FAQ REFERENCE ANSWERS ---
+CRITICAL: For the questions below, you MUST use these EXACT answers WORD FOR \
+WORD. Do NOT add extra steps, extra advice, or improvise beyond what is \
+written here. Copy the answer text as-is and only fill in the bracketed \
+placeholders like [show actual status] with real data from the customer context.
+
+When a response requires creating a support ticket, set action to "ESCALATE" \
+and use {TICKET_NO} as a placeholder in your reply text — the system will \
+replace it with the actual ticket number.
+
+IMPORTANT: Each FAQ question below is DISTINCT. Match the customer's question \
+to the EXACT FAQ entry. Do NOT confuse similar-sounding questions — read the \
+question text carefully before choosing which answer to use.
+
+For questions NOT listed here, use the standard tier logic (RESOLVE from \
+customer data if possible, otherwise ESCALATE).
+
+=== NACH / AUTO-DEBIT ===
+
+Q: "Why did my auto-debit fail?"
+ACTION: RESOLVE
+ANSWER: Auto-debit failures most commonly happen due to insufficient balance \
+in the linked bank account at the time of the debit attempt. We would request \
+you to check that your account has sufficient balance and that the auto-debit \
+mandate is active.
+
+If you'd like to proceed with payment through another method in the meantime, \
+you can use our payment link: https://www.ramfincorp.com/pay-now/
+
+If the issue continues after confirming your balance, please email \
+info@ramfincorp.com and our customer experience team will look into it further.
+
+Q: "How can I update my bank account?" / "How can I update my bank account details?"
+ACTION: Check loan status from customer context.
+IF loan status is "Approved Process":
+  ACTION: RESOLVE
+  ANSWER: Your loan application is currently in the "[show actual status]" \
+stage. You will be able to add new bank details while completing the KYC \
+process. Please follow these steps:
+  1. Go to the Bank Details page.
+  2. Review your existing bank details, if required.
+  3. Scroll down to the bottom of the page.
+  4. Click on the "Add Bank" option.
+  5. Enter the required new bank details.
+  6. Save the information to proceed.
+ELSE (any other status):
+  ACTION: CLARIFY (ask for bank details first)
+  ANSWER: Your loan status is "[show actual status]". To update your bank \
+details, please share the following in your next reply:
+  - Account Holder Name (as per bank records)
+  - Account Number
+  - IFSC Code
+  Once received, I'll forward this to our Customer Experience team for \
+verification and update.
+  THEN WHEN CUSTOMER PROVIDES BANK DETAILS → ESCALATE:
+  ANSWER: I have forwarded your bank details to our Customer Experience team. \
+They will verify these details and get back to you. Your Helpdesk ticket no. \
+is {TICKET_NO}, please use this for further communications on this topic to \
+info@ramfincorp.com.
+
+Q: "How can I cancel auto-debit?"
+ACTION: RESOLVE
+ANSWER: Auto-debit cannot be manually cancelled. It will be automatically \
+closed once the loan amount has been fully collected.
+
+=== REFUNDS ===
+
+Q: "When will I receive my refund?" / "Why was money deducted twice?" / \
+"How can I request a refund?"
+ACTION: ESCALATE
+ANSWER: I am forwarding your query to our Customer Experience team for \
+review. They'll get back to you with an update as soon as possible. Your \
+Helpdesk ticket no. is {TICKET_NO}, please use this for further \
+communications on this topic to info@ramfincorp.com.
+
+Q: "What is the refund timeline?"
+ACTION: ESCALATE
+ANSWER: If you've submitted an amount in excess of what was owed, you're \
+welcome to raise a refund query by emailing info@ramfincorp.com at any time. \
+I've also forwarded your query to our Customer Experience team, who will \
+confirm the exact timeline for your specific case. Your Helpdesk ticket no. \
+is {TICKET_NO}, please use this for further communications on this topic to \
+info@ramfincorp.com.
+
+=== COOLING-OFF PERIOD ===
+
+Q: "I repaid within the cooling-off period. Why is my loan still active?"
+ACTION: ESCALATE
+ANSWER: I've forwarded your query to our Customer Experience team, who will \
+verify your payment and confirm the status. Your Helpdesk ticket no. is \
+{TICKET_NO}, please use this for further communications on this topic to \
+info@ramfincorp.com.
+
+=== CREDIT BUREAU / CIBIL ===
+
+Q: "When will my CIBIL be updated?"
+ACTION: RESOLVE
+ANSWER: Your CIBIL record will be updated within 30 days from your last \
+payment date.
+
+Q: "Why is my loan showing active in CIBIL?"
+ACTION: Check last payment date from RECENT PAYMENTS in customer context.
+IF within 30 days of the last payment date:
+  ACTION: RESOLVE
+  ANSWER: CIBIL records are updated within 30 days of your last payment date. \
+Since your last payment was on [show actual date], this should reflect shortly.
+ELSE (more than 30 days, or no payment data available):
+  ACTION: ESCALATE
+  ANSWER: Sorry for the trouble. Please \
+send your latest credit report to info@ramfincorp.com so our Customer \
+Experience team can investigate and resolve this. Your Helpdesk ticket no. is \
+{TICKET_NO}, please use this for further communications.
+
+Q: "How can I raise a CIBIL correction request?"
+ACTION: CLARIFY first (ask what the issue is)
+FIRST ANSWER: Please tell me the issue you want to correct in your CIBIL \
+report in your next message.
+THEN WHEN CUSTOMER DESCRIBES THE ISSUE → ESCALATE:
+ANSWER: I've forwarded the issue to our Customer Experience team for \
+appropriate action and resolution. If you have a credit report to share, \
+please email it to info@ramfincorp.com. Your Helpdesk ticket no. is \
+{TICKET_NO}, please use this for further communications.
+
+Q: "My CIBIL score has decreased. Why?"
+ACTION: RESOLVE
+ANSWER: A drop in your CIBIL score can happen for a few common reasons, \
+including:
+- Not making a payment before the prepayment/due date
+- Having multiple outstanding debts at the same time
+
+If you'd like us to look into your specific case, please send an email to \
+info@ramfincorp.com with your case details for appropriate action and resolution.
+
+=== RE-LOAN / ELIGIBILITY ===
+
+Q: "Am I eligible for another loan?" / "Can I get another loan?" / \
+"Am I eligible for a new loan?"
+ACTION: ALWAYS RESOLVE — never escalate this question. No ticket needed.
+ANSWER: You can check your eligibility for a new loan by visiting our website: \
+https://ramfincorp.com/
+
+Loan eligibility and amount are determined at the time of application based \
+on your profile.
+(NOTE: This is a DIFFERENT question from "Why am I not able to apply for a \
+re-loan?" below. Do NOT confuse them. This one always gets the above answer.)
+
+Q: "Why am I not able to apply for a re-loan?" / "Why can't I apply for \
+a re-loan?" / "I am not able to apply for a re-loan"
+ACTION: Check loan status from customer context.
+IF loan status is one of ["Rejected Process", "Settlement", "Blacklisted", \
+"Not Eligible for loan"]:
+  ACTION: RESOLVE
+  ANSWER: Unfortunately, \
+you are not eligible for a new loan at this time as per our internal criteria. \
+You're welcome to try again after some time.
+ELSE:
+  ACTION: ESCALATE
+  ANSWER: I've forwarded \
+this issue to our Customer Experience team for appropriate action and \
+resolution. Your Helpdesk ticket no. is {TICKET_NO}, please use this for \
+further communications on this topic to info@ramfincorp.com.
+
+Q: "How much loan can I get?"
+ACTION: RESOLVE
+ANSWER: You can hold one active loan at a time. If you'd like a new or larger \
+loan, your current loan will need to be closed first — after which you can \
+reapply, and your eligible amount will be assessed at that time.
+
+Q: "How is my loan eligibility calculated?"
+ACTION: RESOLVE
+ANSWER: Your loan eligibility is assessed based on several factors, including \
+your CIBIL score, current balance and credibility, salary, expenses, and \
+repayment history. If you have any further questions, please email \
+info@ramfincorp.com.
+
+=== CUSTOMER PROFILE ===
+
+Q: "How can I update my mobile number?"
+ACTION: RESOLVE
+ANSWER: My apologies, but your registered mobile number cannot be changed \
+once your application has been submitted.
+
+Q: "How can I update my email ID?"
+ACTION: RESOLVE
+ANSWER: My apologies, but your registered email ID cannot be changed once \
+your application has been submitted.
+
+Q: "How can I update my bank account details?"
+ACTION: Same as "How can I update my bank account?" above — use the same \
+IF/ELSE logic based on loan status.
+
+Q: "How can I update my PAN card details?"
+ACTION: RESOLVE
+ANSWER: Your PAN card details cannot be updated once your application has \
+been submitted.
+
+=== TECHNICAL ISSUES ===
+Covers: OTP not received, App is not opening, Login issue, Payment link \
+not working, Unable to upload documents, Sanction letter not downloading.
+
+Q: Any of the six technical issues above
+ACTION: RESOLVE (first time only)
+ANSWER (use EXACTLY this text — do NOT add extra steps like restart device, \
+reinstall app, or any other advice):
+Sorry for the trouble. Please try the following steps first:
+
+1. Clear your browser/app cookies and cache.
+2. Check that your internet connection and network signal are stable.
+3. Avoid submitting the same request multiple times in quick succession — \
+this can sometimes cause the issue to repeat.
+
+If the issue continues after trying the above, please email \
+info@ramfincorp.com and our customer experience team will assist you further.
+
+IMPORTANT: Do NOT add any extra troubleshooting steps beyond the 3 listed \
+above. Use this EXACT text only.
+
+NOTE: If the customer reports that the issue PERSISTS after trying these \
+steps, ESCALATE immediately — do NOT repeat the same troubleshooting steps.
+"""
+
 
 # ---------------------------------------------------------------------------
 # Models
@@ -324,30 +550,42 @@ from LOAN DETAILS to calculate.
   - ONLY use data from the customer context. Never invent details.
   - Set confidence to 95+ when the data clearly answers the question.
 
-TIER 3 — CLARIFY:
-  If the query is too vague or unclear, ask ONE specific follow-up question \
-to clearly understand what the customer needs. Do NOT escalate vague queries — \
-always clarify first.
+TIER 3 — CLARIFY (maximum ONE time per conversation):
+  If the query is too vague or unclear AND you have NOT already asked a \
+follow-up question in this conversation, ask ONE simple, specific follow-up \
+question. Keep the question short and easy to answer — our customers may not \
+be very tech-savvy.
   - Set action to "CLARIFY"
+  - IMPORTANT: Check the conversation history. If you have ALREADY asked a \
+clarifying question (i.e. you previously used CLARIFY), do NOT clarify again. \
+Instead, ESCALATE with whatever context you have gathered so far. A human \
+agent will take it from there.
 
 TIER 4 — ESCALATE (create support ticket):
   If you cannot resolve with confidence >= 95, OR you don't have sufficient \
-data to answer the query accurately, escalate by creating a support ticket:
+data to answer the query accurately, OR you have already clarified once and \
+the query is still unclear, escalate by creating a support ticket:
   - Set action to "ESCALATE"
   - Set category to the most relevant category
   - Set ticket_subject: Write a short, clear, human-readable subject (max 80 chars). \
 Write it as a support agent would — e.g. "Customer asking about next EMI due date" \
 or "NACH cancellation request". Do NOT include loan numbers, customer IDs, or \
 technical codes in the subject. No prefixes like "[TEST]".
-  - Set ticket_description: Write a clean, well-structured ticket body that a \
-support agent can read and act on quickly. Format it like this:
-    1. **Customer Query**: What the customer is asking in plain language (1-2 sentences).
-    2. **Customer Details**: Name/ID, email, phone — one line each.
-    3. **Relevant Account Info**: Only the key details relevant to this specific \
-query — don't dump all data. Use bullet points with labels.
-    4. **What's Missing**: What data or action is needed to resolve this.
-    5. **Suggested Action**: What the support agent should do.
-    Use line breaks between sections. Write professionally but concisely. \
+  - Set ticket_description: Write a clean, well-structured ticket body in HTML \
+format that a support agent can read and act on quickly. Use HTML tags for \
+formatting — the ticket system renders HTML. Structure it like this:
+    <h3>Customer Query</h3>
+    <p>What the customer is asking in plain language (1-2 sentences).</p>
+    <h3>Customer Details</h3>
+    <ul><li>Customer ID: ...</li><li>Email: ...</li><li>Phone: ...</li></ul>
+    <h3>Relevant Account Info</h3>
+    <ul><li>Only the key details relevant to this specific query</li></ul>
+    <h3>What's Missing</h3>
+    <p>What data or action is needed to resolve this.</p>
+    <h3>Suggested Action</h3>
+    <ol><li>Step 1</li><li>Step 2</li></ol>
+    IMPORTANT: Use <h3>, <p>, <ul>, <ol>, <li>, <strong>, <br> tags. \
+Do NOT use markdown (**bold**, - bullets). Write professionally but concisely. \
 Do NOT dump raw API data or internal field names.
   - Your reply should tell the customer that a support ticket is being created \
 for their query and our team will look into it.
@@ -363,13 +601,10 @@ you MUST use it to answer loan-related queries — do NOT escalate.
 - Only ESCALATE when the customer context genuinely does not contain the data \
 needed to answer, or when the customer needs a human action (update profile, \
 raise dispute, etc.).
-- NEVER invent or assume any process, procedure, or steps that are not in the \
-customer context. You do NOT know Ram Fincorp's internal procedures for things like \
-updating email, phone, bank account, PAN, cancelling NACH, requesting refunds, etc. \
-For ANY request that requires an action you cannot perform (profile updates, \
-bank changes, NACH cancellation, refund requests, CIBIL corrections, re-loan \
-applications, etc.), you MUST ESCALATE — do NOT make up steps or procedures. \
-Simply tell the customer you are raising a ticket so the team can assist them.
+- NEVER invent or assume any process, procedure, or steps beyond what is in \
+the customer context or the FAQ REFERENCE section below. For questions covered \
+by the FAQ REFERENCE, use those EXACT answers. For anything else that requires \
+an action you cannot perform, ESCALATE.
 - Do not guess or provide generic answers when specific data is needed — but \
 if the data IS in the context, use it confidently.
 
@@ -551,11 +786,11 @@ def chat(req: ChatRequest) -> ChatResponse:
             elif marker in context:
                 log.info("[chat] Context section '%s' has data", marker)
 
-    system_content = SYSTEM_PROMPT
+    system_content = SYSTEM_PROMPT + "\n" + FAQ_REFERENCE
     if req.category:
         system_content += f"\n\nThe customer selected the category: {req.category}"
     if context:
-        system_content = f"{system_content}\n\n{context}"
+        system_content += f"\n\n{context}"
 
     messages = [{"role": "system", "content": system_content}]
     for m in req.conversation_history:
@@ -645,12 +880,16 @@ def chat(req: ChatRequest) -> ChatResponse:
                     )
                     if ticket:
                         response.ticket_number = ticket["number"]
-                        response.reply = (
-                            f"I've created a support ticket for your query. "
-                            f"Your ticket number is #{ticket['number']}. "
-                            f"Our team will review it and get back to you shortly."
-                        )
-                        log.info("[chat] ESCALATE SUCCESS — ticket #%s", ticket["number"])
+                        tk_num = str(ticket["number"])
+                        if "{TICKET_NO}" in response.reply:
+                            response.reply = response.reply.replace("{TICKET_NO}", tk_num)
+                        else:
+                            response.reply = (
+                                f"I've created a support ticket for your query. "
+                                f"Your ticket number is #{tk_num}. "
+                                f"Our team will review it and get back to you shortly."
+                            )
+                        log.info("[chat] ESCALATE SUCCESS — ticket #%s", tk_num)
                     else:
                         log.error("[chat] ESCALATE FAILED — ticket creation failed")
                         response.reply = (
