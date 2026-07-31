@@ -235,7 +235,7 @@ export default function App() {
         {
           role: "assistant",
           content:
-            "Sorry, I'm having trouble connecting right now. Please try again in a moment.",
+            "Sorry, abhi connection mein problem aa rahi hai. Thodi der baad dobara try karein.",
         },
       ]);
     } finally {
@@ -483,13 +483,13 @@ export default function App() {
                     {m.existingTicket && (
                       <div className="ticket-card">
                         <div className="ticket-title">
-                          Existing ticket found
+                          Humari team already dekh rahi hai
                         </div>
                         <div className="ticket-body">
-                          We already have an open ticket
+                          Aapki yeh problem pehle se humari team ke paas hai
                           {m.existingTicket.ticketNumber &&
-                            ` (#${m.existingTicket.ticketNumber})`}{" "}
-                          for this issue. Our team is on it.
+                            ` (Reference: #${m.existingTicket.ticketNumber})`}
+                          . Woh jaldi aapse contact karenge.
                         </div>
                       </div>
                     )}
@@ -497,11 +497,11 @@ export default function App() {
                     {m.ticketCreated && (
                       <div className="ticket-created-card">
                         <div className="ticket-created-title">
-                          Support Ticket Created
+                          Aapki baat team tak pahunch gayi!
                         </div>
                         <div className="ticket-created-body">
-                          Ticket <strong>#{m.ticketCreated.ticketNumber}</strong> has been
-                          created. Our team will review and get back to you.
+                          Aapka reference number <strong>#{m.ticketCreated.ticketNumber}</strong> hai.
+                          Humari team jaldi aapse contact karegi.
                         </div>
                       </div>
                     )}
