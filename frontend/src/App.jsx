@@ -470,7 +470,7 @@ export default function App() {
           <div className="sidebar-section">
             <button
               className="sidebar-action-btn"
-              style={{ background: "#1a6f5c", color: "#fff", fontWeight: 600, marginBottom: 8, width: "100%" }}
+              style={{ background: "#1048E6", color: "#fff", fontWeight: 600, marginBottom: 8, width: "100%" }}
               onClick={() => { setSidebarOpen(false); fetchDocuments(); }}
               disabled={docsLoading || isTyping}
             >
@@ -579,7 +579,7 @@ export default function App() {
                       <div className="quick-options" style={{ marginTop: 10 }}>
                         <button
                           className="quick-opt-btn"
-                          style={{ background: "#1a6f5c", color: "#fff", border: "none" }}
+                          style={{ background: "#1048E6", color: "#fff", border: "none" }}
                           onClick={() => handleLanguageSelect("english")}
                           disabled={isTyping}
                         >
@@ -587,7 +587,7 @@ export default function App() {
                         </button>
                         <button
                           className="quick-opt-btn"
-                          style={{ background: "#27ae60", color: "#fff", border: "none" }}
+                          style={{ background: "#3B6FE8", color: "#fff", border: "none" }}
                           onClick={() => handleLanguageSelect("hindi")}
                           disabled={isTyping}
                         >
