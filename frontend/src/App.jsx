@@ -9,11 +9,16 @@ export default function App() {
   const [identifyError, setIdentifyError] = useState("");
   const [customer, setCustomer] = useState(null);
 
+  const [language, setLanguage] = useState(null); // "english" | "hindi"
+  const languageRef = useRef(null);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const scrollRef = useRef(null);
+
+  const [documents, setDocuments] = useState(null);
+  const [docsLoading, setDocsLoading] = useState(false);
 
   // Agent mode state (kept but disconnected from ESCALATE flow)
   const [agentMode, setAgentMode] = useState(false);
@@ -29,12 +34,18 @@ export default function App() {
     });
   }, [messages, isTyping]);
 
-  // Auto-send greeting when customer is identified.
+  // Show language selection as the first chat message when customer is identified.
   const greetedRef = useRef(false);
   useEffect(() => {
     if (customer && !greetedRef.current) {
       greetedRef.current = true;
-      autoGreet();
+      setMessages([
+        {
+          role: "assistant",
+          content: "Please select your preferred language to continue.\nKripya apni bhasha chunein.",
+          languageSelect: true,
+        },
+      ]);
     }
   }, [customer]);
 
@@ -94,22 +105,104 @@ export default function App() {
     return () => clearInterval(pollRef.current);
   }, [agentMode, conversationId, agentClosed]);
 
-  async function autoGreet() {
+  async function fetchDocuments() {
+    if (!customer?.customerID || docsLoading) return;
+    setDocsLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/documents/${customer.customerID}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const loans = data.documents || [];
+      setDocuments(loans);
+      const lang = languageRef.current;
+      if (loans.length === 0) {
+        setMessages((prev) => [
+          ...prev,
+          { role: "user", content: lang === "hindi" ? "मेरे Documents दिखाओ" : "Show my Documents" },
+          { role: "assistant", content: lang === "hindi" ? "कोई document नहीं मिला।" : "No documents found for your account." },
+        ]);
+      } else {
+        const msg = lang === "hindi"
+          ? `आपके ${loans.length} loan(s) मिले। किस loan के documents चाहिए?`
+          : `You have ${loans.length} loan(s). Which loan's documents do you need?`;
+        setMessages((prev) => [
+          ...prev,
+          { role: "user", content: lang === "hindi" ? "मेरे Documents दिखाओ" : "Show my Documents" },
+          { role: "assistant", content: msg, loanSelect: loans },
+        ]);
+      }
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: "Sorry, documents load nahi ho paye. Thodi der baad try karein." },
+      ]);
+    } finally {
+      setDocsLoading(false);
+    }
+  }
+
+  function handleLoanSelect(loan) {
+    const lang = languageRef.current;
+    const docs = loan.documents || [];
+    const msg = docs.length > 0
+      ? (lang === "hindi"
+        ? `Loan ${loan.loanNo} ke ${docs.length} document(s) हैं। Download करें:`
+        : `Loan ${loan.loanNo} has ${docs.length} document(s). Download below:`)
+      : (lang === "hindi"
+        ? `Loan ${loan.loanNo} में कोई document नहीं है।`
+        : `No documents available for loan ${loan.loanNo}.`);
+    setMessages((prev) => [
+      ...prev,
+      { role: "user", content: loan.loanNo },
+      { role: "assistant", content: msg, loanDocs: docs },
+    ]);
+  }
+
+  async function downloadDocument(docId, docName) {
+    try {
+      const res = await fetch(`${API_BASE}/document-url/${docId}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      if (data.success && data.url) {
+        window.open(data.url, "_blank");
+      } else {
+        alert(docName + " ka link nahi mil paya. Please try again.");
+      }
+    } catch {
+      alert("Document download mein error aaya. Please try again.");
+    }
+  }
+
+  function handleLanguageSelect(lang) {
+    setLanguage(lang);
+    languageRef.current = lang;
+    const langLabel = lang === "hindi" ? "हिंदी" : "English";
+    setMessages((prev) => [
+      ...prev,
+      { role: "user", content: langLabel },
+    ]);
+    autoGreet(lang);
+  }
+
+  async function autoGreet(lang) {
     setIsTyping(true);
+    const greetMsg = lang === "hindi" ? "नमस्ते" : "hi";
     try {
       const res = await fetch(`${API_BASE}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: "hi",
+          message: greetMsg,
           conversation_history: [],
           email: customer.email || customer.inputEmail,
           phone: customer.mobile || customer.inputPhone,
+          language: lang,
         }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      setMessages([
+      setMessages((prev) => [
+        ...prev,
         {
           role: "assistant",
           content: data.reply,
@@ -117,7 +210,8 @@ export default function App() {
         },
       ]);
     } catch {
-      setMessages([
+      setMessages((prev) => [
+        ...prev,
         {
           role: "assistant",
           content: "Welcome to Ram Fincorp support. How can I help you today?",
@@ -210,6 +304,7 @@ export default function App() {
           conversation_history: history,
           email: customer.email || customer.inputEmail,
           phone: customer.mobile || customer.inputPhone,
+          language: languageRef.current,
         }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -219,6 +314,7 @@ export default function App() {
         role: "assistant",
         content: data.reply,
         options: data.options || null,
+        loanSelect: (data.documents && data.documents.length > 0) ? data.documents : null,
         existingTicket:
           data.action === "EXISTING_TICKET"
             ? { ticketNumber: data.ticket_number }
@@ -372,6 +468,17 @@ export default function App() {
           </div>
           <div className="sidebar-divider" />
           <div className="sidebar-section">
+            <button
+              className="sidebar-action-btn"
+              style={{ background: "#1a6f5c", color: "#fff", fontWeight: 600, marginBottom: 8, width: "100%" }}
+              onClick={() => { setSidebarOpen(false); fetchDocuments(); }}
+              disabled={docsLoading || isTyping}
+            >
+              {docsLoading ? "Loading..." : "My Documents"}
+            </button>
+          </div>
+          <div className="sidebar-divider" />
+          <div className="sidebar-section">
             <div className="sidebar-label">Quick Actions</div>
             <div className="sidebar-actions">
               {[
@@ -408,8 +515,11 @@ export default function App() {
               className="logout-btn"
               onClick={() => {
                 setCustomer(null);
+                setLanguage(null);
+                languageRef.current = null;
                 setMessages([]);
                 setInput("");
+                setDocuments(null);
                 setAgentMode(false);
                 setConversationId(null);
                 setAgentClosed(false);
@@ -465,6 +575,27 @@ export default function App() {
                     )}
                     {m.content}
 
+                    {m.languageSelect && !language && (
+                      <div className="quick-options" style={{ marginTop: 10 }}>
+                        <button
+                          className="quick-opt-btn"
+                          style={{ background: "#1a6f5c", color: "#fff", border: "none" }}
+                          onClick={() => handleLanguageSelect("english")}
+                          disabled={isTyping}
+                        >
+                          English
+                        </button>
+                        <button
+                          className="quick-opt-btn"
+                          style={{ background: "#27ae60", color: "#fff", border: "none" }}
+                          onClick={() => handleLanguageSelect("hindi")}
+                          disabled={isTyping}
+                        >
+                          हिंदी (Hindi)
+                        </button>
+                      </div>
+                    )}
+
                     {m.options && (
                       <div className="quick-options">
                         {m.options.map((opt) => (
@@ -503,6 +634,52 @@ export default function App() {
                           Aapka reference number <strong>#{m.ticketCreated.ticketNumber}</strong> hai.
                           Humari team jaldi aapse contact karegi.
                         </div>
+                      </div>
+                    )}
+
+                    {m.loanSelect && m.loanSelect.length > 0 && (
+                      <div className="quick-options" style={{ marginTop: 10 }}>
+                        {m.loanSelect.map((loan) => (
+                          <button
+                            key={loan.loanNo}
+                            className="loan-select-btn"
+                            onClick={() => handleLoanSelect(loan)}
+                            disabled={isTyping}
+                          >
+                            <div className="loan-select-no">{loan.loanNo}</div>
+                            <div className="loan-select-meta">
+                              <span className={`loan-status-badge ${loan.status === "Disbursed" ? "status-active" : loan.status === "Closed" ? "status-closed" : "status-other"}`}>
+                                {loan.status}
+                              </span>
+                              <span>Rs {loan.disbursalAmount || loan.loanAmtApproved}</span>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    {m.loanDocs && m.loanDocs.length > 0 && (
+                      <div className="documents-list" style={{ marginTop: 10 }}>
+                        {m.loanDocs.map((doc, di) => {
+                          const docId = doc.documentID || doc.documentId || "";
+                          const docType = doc.type || doc.documentType || "Document";
+                          return (
+                            <div key={di} className="document-card">
+                              <div className="document-info">
+                                <span className="document-icon">&#128196;</span>
+                                <div className="document-name">{docType}</div>
+                              </div>
+                              {docId && (
+                                <button
+                                  className="document-download-btn"
+                                  onClick={() => downloadDocument(docId, docType)}
+                                >
+                                  Download
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                   </div>

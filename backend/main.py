@@ -57,6 +57,7 @@ CATEGORIES = [
     {
         "id": "loan_status",
         "name": "Loan Status",
+        "name_hi": "लोन स्टेटस",
         "questions": [
             "What is the status of my loan application?",
             "Has my loan been approved?",
@@ -66,10 +67,20 @@ CATEGORIES = [
             "Why was my loan application rejected?",
             "Can I reapply after rejection?",
         ],
+        "questions_hi": [
+            "मेरे लोन का स्टेटस क्या है?",
+            "क्या मेरा लोन approve हो गया है?",
+            "मेरा लोन अभी तक review में क्यों है?",
+            "मेरा लोन कब disburse होगा?",
+            "मेरा लोन Disbursed दिखा रहा है लेकिन पैसे नहीं आए।",
+            "मेरा लोन reject क्यों हुआ?",
+            "Rejection के बाद क्या मैं दोबारा apply कर सकता हूँ?",
+        ],
     },
     {
         "id": "emi_repayment",
         "name": "EMI & Repayment",
+        "name_hi": "EMI और भुगतान",
         "questions": [
             "What is my next EMI due date?",
             "How much EMI do I need to pay?",
@@ -81,20 +92,39 @@ CATEGORIES = [
             "Can I pay my EMI before the due date?",
             "Can I close my loan early?",
         ],
+        "questions_hi": [
+            "मेरी अगली EMI की तारीख क्या है?",
+            "मुझे कितनी EMI देनी है?",
+            "मेरा बकाया लोन कितना है?",
+            "मैं payment कैसे करूँ?",
+            "मेरा payment दिख नहीं रहा।",
+            "मैंने EMI दी लेकिन bounce charge आया।",
+            "Penalty क्यों लगी है?",
+            "क्या मैं due date से पहले EMI दे सकता हूँ?",
+            "क्या मैं लोन जल्दी बंद कर सकता हूँ?",
+        ],
     },
     {
         "id": "nach_autodebit",
         "name": "NACH / Auto-Debit",
+        "name_hi": "NACH / Auto-Debit",
         "questions": [
             "What is NACH?",
             "Why did my auto-debit fail?",
             "How can I update my bank account?",
             "How can I cancel auto-debit?",
         ],
+        "questions_hi": [
+            "NACH क्या है?",
+            "मेरा auto-debit fail क्यों हुआ?",
+            "मैं अपना bank account कैसे update करूँ?",
+            "Auto-debit कैसे cancel करें?",
+        ],
     },
     {
         "id": "loan_closure_noc",
         "name": "Loan Closure & NOC",
+        "name_hi": "लोन बंद और NOC",
         "questions": [
             "Is my loan closed?",
             "How can I download my NOC?",
@@ -102,59 +132,101 @@ CATEGORIES = [
             "When will my NOC be generated?",
             "How long does it take to update loan closure?",
         ],
+        "questions_hi": [
+            "क्या मेरा लोन बंद हो गया है?",
+            "मैं अपना NOC कैसे download करूँ?",
+            "मैंने लोन चुका दिया लेकिन अभी भी active दिखा रहा है।",
+            "मेरा NOC कब बनेगा?",
+            "लोन बंद होने में कितना समय लगता है?",
+        ],
     },
     {
         "id": "refunds",
         "name": "Refunds",
+        "name_hi": "रिफंड",
         "questions": [
             "When will I receive my refund?",
             "Why was money deducted twice?",
             "How can I request a refund?",
             "What is the refund timeline?",
         ],
+        "questions_hi": [
+            "मेरा refund कब आएगा?",
+            "पैसे दो बार क्यों कटे?",
+            "Refund कैसे माँगें?",
+            "Refund में कितना समय लगता है?",
+        ],
     },
     {
         "id": "cooling_off",
         "name": "Cooling-Off Period",
+        "name_hi": "Cooling-Off अवधि",
         "questions": [
             "What is the cooling-off period?",
             "Can I cancel my loan during the cooling-off period?",
             "I repaid within the cooling-off period. Why is my loan still active?",
         ],
+        "questions_hi": [
+            "Cooling-off period क्या है?",
+            "क्या मैं cooling-off period में लोन cancel कर सकता हूँ?",
+            "मैंने cooling-off period में पैसे चुका दिए। लोन अभी भी active क्यों है?",
+        ],
     },
     {
         "id": "cibil",
         "name": "Credit Bureau / CIBIL",
+        "name_hi": "CIBIL / क्रेडिट ब्यूरो",
         "questions": [
             "When will my CIBIL be updated?",
             "Why is my loan showing active in CIBIL?",
             "How can I raise a CIBIL correction request?",
             "My CIBIL score has decreased. Why?",
         ],
+        "questions_hi": [
+            "मेरा CIBIL कब update होगा?",
+            "CIBIL में मेरा लोन active क्यों दिखा रहा है?",
+            "CIBIL correction request कैसे करें?",
+            "मेरा CIBIL score क्यों गिरा?",
+        ],
     },
     {
         "id": "reloan",
         "name": "Re-Loan / Eligibility",
+        "name_hi": "दोबारा लोन / पात्रता",
         "questions": [
             "Am I eligible for another loan?",
             "Why am I not able to apply for a re-loan?",
             "How much loan can I get?",
             "How is my loan eligibility calculated?",
         ],
+        "questions_hi": [
+            "क्या मैं नया लोन ले सकता हूँ?",
+            "मैं दोबारा लोन के लिए apply क्यों नहीं कर पा रहा?",
+            "मुझे कितना लोन मिल सकता है?",
+            "लोन पात्रता कैसे तय होती है?",
+        ],
     },
     {
         "id": "profile",
         "name": "Customer Profile",
+        "name_hi": "प्रोफ़ाइल अपडेट",
         "questions": [
             "How can I update my mobile number?",
             "How can I update my email ID?",
             "How can I update my bank account details?",
             "How can I update my PAN card details?",
         ],
+        "questions_hi": [
+            "मोबाइल नंबर कैसे बदलें?",
+            "Email ID कैसे बदलें?",
+            "Bank account details कैसे update करें?",
+            "PAN card details कैसे update करें?",
+        ],
     },
     {
         "id": "technical",
         "name": "Technical Issues",
+        "name_hi": "तकनीकी समस्या",
         "questions": [
             "OTP not received.",
             "App is not opening.",
@@ -163,31 +235,52 @@ CATEGORIES = [
             "Unable to upload documents.",
             "Sanction letter not downloading.",
         ],
+        "questions_hi": [
+            "OTP नहीं आया।",
+            "App नहीं खुल रहा।",
+            "Login में problem है।",
+            "Payment link काम नहीं कर रहा।",
+            "Documents upload नहीं हो रहे।",
+            "Sanction letter download नहीं हो रहा।",
+        ],
     },
     {
         "id": "payments",
         "name": "Payments & Transactions",
+        "name_hi": "भुगतान और लेनदेन",
         "questions": [
             "Show my recent transactions.",
             "What is my disbursed amount?",
+        ],
+        "questions_hi": [
+            "मेरे हाल के transactions दिखाओ।",
+            "मेरी disbursed राशि कितनी है?",
         ],
     },
     {
         "id": "calculations",
         "name": "EMI & Interest Calculator",
+        "name_hi": "EMI और ब्याज कैलकुलेटर",
         "questions": [
             "Calculate my EMI.",
             "What is my interest rate?",
+        ],
+        "questions_hi": [
+            "मेरी EMI कितनी है?",
+            "मेरा interest rate क्या है?",
         ],
     },
     {
         "id": "other",
         "name": "Other",
+        "name_hi": "अन्य",
         "questions": [],
+        "questions_hi": [],
     },
 ]
 
 CATEGORY_NAMES = [c["name"] for c in CATEGORIES]
+_HINDI_TO_ENGLISH_CAT = {c["name_hi"]: c["name"] for c in CATEGORIES}
 
 GREETING_CATEGORIES = [
     "Loan Status",
@@ -196,6 +289,15 @@ GREETING_CATEGORIES = [
     "Payments & Transactions",
     "EMI & Interest Calculator",
     "Other",
+]
+
+GREETING_CATEGORIES_HI = [
+    "लोन स्टेटस",
+    "EMI और भुगतान",
+    "लोन बंद और NOC",
+    "भुगतान और लेनदेन",
+    "EMI और ब्याज कैलकुलेटर",
+    "अन्य",
 ]
 
 # ---------------------------------------------------------------------------
@@ -560,11 +662,13 @@ class ChatRequest(BaseModel):
     email: Optional[str] = None
     phone: Optional[str] = None
     category: Optional[str] = None
+    language: Optional[str] = None
 
 
 VALID_ACTIONS = {
     "GREETING", "RESOLVE", "ESCALATE", "CLARIFY",
     "EXISTING_TICKET", "SEND_NOC", "CONFIRM_ESCALATE",
+    "SHOW_DOCUMENTS",
 }
 # EXISTING_TICKET is kept in VALID_ACTIONS for backwards compat but is now
 # handled in code (not by the LLM) — see _check_existing_ticket() below.
@@ -577,6 +681,7 @@ class ChatResponse(BaseModel):
     confidence: int
     ticket_number: Optional[str] = None
     options: Optional[List[str]] = None
+    documents: Optional[List[Dict[str, Any]]] = None
 
 
 # ---------------------------------------------------------------------------
@@ -616,9 +721,18 @@ You have to be assertive but polite always.
 
 You help customers with queries related to their loans, EMI payments, loan \
 status, NOC requests, repayment schedules, late fees, and general account \
-questions. You can handle English and Hinglish (Hindi + English mixed) messages.
+questions. You can handle English, Hindi (Devanagari script), and Hinglish (romanized Hindi + English mixed) messages.
 
 LANGUAGE RULES (VERY IMPORTANT — FOLLOW STRICTLY):
+- DYNAMIC LANGUAGE MATCHING: Always reply in the SAME language the customer's \
+LATEST message is in. This is the #1 rule.
+  * If customer writes in English → reply in English
+  * If customer writes in Hindi (Devanagari like "मेरा लोन स्टेटस क्या है?") → \
+reply in Hindi Devanagari script (like "आपके लोन का स्टेटस एक्टिव है।")
+  * If customer writes in Hinglish (romanized like "mera loan status kya hai?") → \
+reply in Hinglish
+- When replying in Hindi (Devanagari), use simple spoken Hindi. Technical/English \
+terms like loan, EMI, NOC, CIBIL, NACH, status, email, OTP, app can stay in English.
 - Use VERY simple language. Our customers may not be educated or tech-savvy.
 - Write SHORT sentences. Use easy, everyday words.
 - Do NOT use big English words like "furthermore", "assistance", "inconvenience", \
@@ -629,19 +743,18 @@ LANGUAGE RULES (VERY IMPORTANT — FOLLOW STRICTLY):
 "papers/documents" not "documentary evidence", "not enough money" not \
 "insufficient balance".
 - Talk like a friendly helpful person, not like a formal letter.
-- If the customer writes in Hinglish, you MUST reply in Hinglish. This is \
-NON-NEGOTIABLE. Even when using FAQ template answers, you MUST translate them \
-into Hinglish. NEVER copy-paste English FAQ templates when customer wrote in \
-Hinglish. Rewrite the answer in simple Hinglish.
+- Even when using FAQ template answers, you MUST translate them into the \
+customer's language. NEVER copy-paste English FAQ templates when customer \
+wrote in Hindi or Hinglish. Rewrite the answer in the matching language.
 - Keep replies to 2-3 short sentences maximum. No long paragraphs.
 - Do NOT use the word "ticket" ANYWHERE in any reply — our customers don't \
 know what a ticket is. Never say "raise a ticket", "support ticket", "create \
-a ticket". Instead say things like "hamare team ko aapki problem batata hoon" \
+a ticket". Instead say things like "हमारी team को आपकी problem बता देता हूँ" \
 or "I will connect you with our team".
 
 For every customer message, you must respond with a JSON object in this exact format:
 {
-  "action": one of "GREETING" | "RESOLVE" | "CLARIFY" | "CONFIRM_ESCALATE" | "ESCALATE" | "SEND_NOC",
+  "action": one of "GREETING" | "RESOLVE" | "CLARIFY" | "CONFIRM_ESCALATE" | "ESCALATE" | "SHOW_DOCUMENTS",
   "reply": "your message to the customer",
   "category": "query category or null",
   "confidence": 0-100,
@@ -658,25 +771,71 @@ with a friendly welcome and ask how you can help. Set action to "GREETING". \
 The system will automatically show category buttons — do NOT list the \
 categories in your reply text.
 
-TIER 1 — SEND_NOC:
-  If the customer confirms they want the NOC sent (after you told them they \
-are eligible), set action to "SEND_NOC". The system will trigger the NOC \
-delivery. Your reply should say something like "Sending your No Dues Certificate now..."
+TIER 1 — NOC REQUESTS:
+  If the customer asks about NOC, first check NOC ELIGIBILITY from customer \
+context. Tell them if they are eligible or not. If eligible and they want the \
+NOC, set action to "ESCALATE" (not SEND_NOC) so our team can process and \
+send it. Your reply should say something like "I'm forwarding your NOC \
+request to our team. They will send it to your registered email."
+
+TIER 1.5 — SHOW_DOCUMENTS (customer asks for documents/download):
+  If the customer asks to see, view, download, or get their documents \
+(sanction letter, loan agreement, NOC document, any loan document), set \
+action to "SHOW_DOCUMENTS". The system will automatically fetch and display \
+the documents with download buttons — you do NOT need to list document IDs \
+or names. Just write a short friendly reply like "Here are your documents:" \
+or "Yeh rahe aapke documents:" (in customer's language).
+  IMPORTANT: Do NOT offer to email documents. Do NOT say "I'll send to your \
+email". The customer can download directly from the chat. Do NOT list \
+document IDs in your reply text — the system handles that.
+  If the customer asks for documents of a SPECIFIC loan, mention that loan \
+number in your reply. The system will show all available documents.
 
 TIER 2 — RESOLVE (USE THIS whenever customer data is available):
   If the customer context below contains data that can answer the query, \
 you MUST resolve directly. Do NOT escalate when you have the data.
   - Set action to "RESOLVE"
+  - LOAN ACCOUNT NUMBER: Whenever you answer ANY loan-related query and the \
+Loan No is available in the customer context, you MUST mention it in your \
+reply. Example: "Aapke loan (Loan No: XXXXX) ka status Active hai." This \
+helps customers identify which loan you are referring to, especially if they \
+have multiple loans.
   - For LOAN STATUS queries (application status, approved, disbursed, rejected, \
 under review): look at LOAN DETAILS — the "Status" field is the answer. \
 If you see a Status like "Active", "Closed", "Disbursed", etc., RESOLVE it.
   - For EMI & REPAYMENT queries (next EMI, outstanding, paid amount): look at \
-LOAN DETAILS for amounts/dates and RECENT PAYMENTS for transaction history.
+LOAN DETAILS for amounts/dates and RECENT PAYMENTS for transaction history. \
+Show ONLY the fields that are available in the context. Present the data in \
+a clean format like this (skip any field that is missing or empty):
+    Loan No: [from context]
+    Approved Loan Amount: Rs [loanAmount]
+    Interest Rate: [roi]% per day
+    Loan Tenure: [loanTenure] days
+    Repayment Due Date: [repaymentDate]
+    Days Past Due: [dpd] days
+    Total Outstanding Amount: Rs [outstandingAmount]
+    Paid Amount: Rs [paidAmount]
+    Penalty Charges: Rs [penalInterest] (only if > 0)
+    Bounce Charges: Rs [bounceCharges] (only if > 0)
+  IMPORTANT: Do NOT show any field that is not available in the context. Do \
+NOT invent or assume any value.
+  - For ROI & EMI CALCULATION queries: Use ONLY the data from LOAN DETAILS. \
+The ROI field is the DAILY interest rate (% per day). To calculate total \
+interest: Total Interest = (loanAmount × roi × loanTenure) / 100. \
+Total Repayment = loanAmount + Total Interest. Show it like:
+    Loan No: [from context]
+    Approved Loan Amount: Rs [loanAmount]
+    Interest Rate: [roi]% per day
+    Loan Tenure: [loanTenure] days
+    Total Interest: Rs [calculated]
+    Total Repayment Amount: Rs [calculated]
+    Due Date: [repaymentDate]
+  IMPORTANT: The ROI is per DAY, so you MUST multiply by the full tenure \
+(number of days). Do NOT calculate interest for just 1 day.
   - For LOAN CLOSURE & NOC queries: use NOC ELIGIBILITY + loan Status.
   - For PAYMENTS queries: use RECENT PAYMENTS data.
-  - For EMI CALCULATOR queries: use the loan amount, tenure, and interest rate \
-from LOAN DETAILS to calculate.
-  - ONLY use data from the customer context. Never invent details.
+  - ONLY use data from the customer context. Never invent details. If a \
+field is not in the context, do NOT show it — skip it silently.
   - Set confidence to 95+ when the data clearly answers the question.
 
 TIER 3 — CLARIFY (maximum ONE time per conversation):
@@ -740,12 +899,17 @@ reply: "Koi baat nahi! Agar baad mein madad chahiye toh mujhe bata dijiye." \
 or "No problem! Let me know if you need help later."
 
 Additional rules:
-- ALWAYS respond in the same language the customer used (English or Hinglish). \
-If they wrote in Hinglish, your ENTIRE reply must be in Hinglish — even when \
-using FAQ templates. Translate the template answer into simple Hinglish.
+- ALWAYS respond in the same language the customer's LATEST message used. \
+If they wrote in Hindi (Devanagari), reply in Hindi Devanagari. If they wrote \
+in Hinglish, reply in Hinglish. If they wrote in English, reply in English. \
+Even when using FAQ templates, translate into the customer's language.
 - Keep replies concise and friendly. Use simple words as described in LANGUAGE RULES above.
 - Never make up specific account details, balances, or dates — only use data \
 from the customer context provided below.
+- STRICT DATA RULE: Only show data fields that ACTUALLY EXIST in the customer \
+context. If a field is missing, empty, or not provided by the API, do NOT \
+show it, do NOT put "[N/A]" or "[Not Available]", just skip that line entirely. \
+Never guess or calculate a value that is not provided.
 - When showing financial data, format amounts with Rs and commas.
 - CRITICAL: If the LOAN DETAILS section shows data (Status, Loan Amount, etc.), \
 you MUST use it to answer loan-related queries — do NOT escalate.
@@ -924,31 +1088,43 @@ def identify(req: IdentifyRequest) -> IdentifyResponse:
 def chat(req: ChatRequest) -> ChatResponse:
     log.info("[chat] message=%s | email=%s | category=%s", req.message[:60], req.email, req.category)
 
-    # Check if user selected a category name — return its questions, no LLM needed
+    # Check if user selected a category name (English or Hindi) — return its questions
+    msg_lower = req.message.strip().lower()
     category_match = next(
-        (c for c in CATEGORIES if c["name"].lower() == req.message.strip().lower()),
+        (c for c in CATEGORIES if c["name"].lower() == msg_lower or c.get("name_hi", "").lower() == msg_lower),
         None,
     )
+    lang = req.language or "english"
     if category_match:
         if category_match["id"] == "other":
             log.info("[chat] 'Other' selected — asking user to type query")
+            if lang == "hindi":
+                other_reply = "हाँ ज़रूर! अपना सवाल या problem लिख दीजिए, मैं आपकी मदद करता हूँ।"
+            else:
+                other_reply = "Sure! Please type your question or issue, I'll help you."
             return ChatResponse(
                 action="RESOLVE",
-                reply="Haan zaroor! Apna sawaal ya problem likh dijiye, main aapki madad karta hoon.",
+                reply=other_reply,
                 category="Other",
                 confidence=100,
                 ticket_number=None,
                 options=None,
             )
+        cat_name = category_match["name_hi"] if lang == "hindi" else category_match["name"]
+        questions = category_match.get("questions_hi", category_match["questions"]) if lang == "hindi" else category_match["questions"]
         log.info("[chat] Category selected: %s — returning %d questions",
-                 category_match["name"], len(category_match["questions"]))
+                 category_match["name"], len(questions))
+        if lang == "hindi":
+            cat_reply = f"{cat_name} के बारे में ये common सवाल हैं। कोई एक चुनें या अपना सवाल लिख दीजिए:"
+        else:
+            cat_reply = f"Here are common questions about {cat_name}. Choose one or type your own question:"
         return ChatResponse(
             action="RESOLVE",
-            reply=f"{category_match['name']} ke baare mein yeh common sawaal hain. Koi ek choose karein ya apna sawaal likh dijiye:",
+            reply=cat_reply,
             category=category_match["name"],
             confidence=100,
             ticket_number=None,
-            options=category_match["questions"],
+            options=questions,
         )
 
     context, cust = enrichment.build_customer_context(
@@ -963,6 +1139,37 @@ def chat(req: ChatRequest) -> ChatResponse:
                 log.info("[chat] Context section '%s' has data", marker)
 
     system_content = SYSTEM_PROMPT + "\n" + FAQ_REFERENCE
+    if req.language:
+        if req.language == "hindi":
+            system_content += (
+                "\n\nCUSTOMER LANGUAGE PREFERENCE: The customer selected Hindi "
+                "as their preferred language. You MUST reply in proper Hindi using "
+                "Devanagari script (हिंदी). Write in actual Hindi like: "
+                "\"आपके लोन का स्टेटस एक्टिव है।\" NOT in Hinglish/romanized Hindi "
+                "like \"Aapke loan ka status active hai.\" "
+                "Use simple, everyday Hindi that common people understand. "
+                "Avoid complex/formal Hindi words — use simple spoken Hindi. "
+                "Technical/English terms like loan, EMI, NOC, CIBIL, NACH, status, "
+                "email, OTP can stay in English as they are commonly understood."
+                "\n\nIMPORTANT — DYNAMIC LANGUAGE RULE: If the customer sends a message "
+                "in English during the conversation, you MUST switch to English for "
+                "that reply and continue in English until they switch back. Always "
+                "match the language of the customer's latest message. If they write "
+                "in Hindi/Devanagari, reply in Hindi. If they write in English, "
+                "reply in English. If they write in Hinglish (romanized Hindi), "
+                "reply in Hinglish."
+            )
+        else:
+            system_content += (
+                "\n\nCUSTOMER LANGUAGE PREFERENCE: The customer selected English "
+                "as their preferred language. You MUST reply in English."
+                "\n\nIMPORTANT — DYNAMIC LANGUAGE RULE: If the customer sends a message "
+                "in Hindi or Hinglish during the conversation, you MUST switch to "
+                "that language for that reply. Always match the language of the "
+                "customer's latest message. If they write in Hindi/Devanagari, reply "
+                "in Hindi (Devanagari script). If they write in Hinglish (romanized "
+                "Hindi), reply in Hinglish. If they write in English, reply in English."
+            )
     if req.category:
         system_content += f"\n\nThe customer selected the category: {req.category}"
     if context:
@@ -994,33 +1201,44 @@ def chat(req: ChatRequest) -> ChatResponse:
 
         if response.action == "CONFIRM_ESCALATE":
             log.info("[chat] CONFIRM_ESCALATE — asking user for confirmation")
-            response.options = ["Haan, team se baat karo", "Nahi, rehne do"]
+            if lang == "hindi":
+                response.options = ["हाँ, team से बात करो", "नहीं, रहने दो"]
+            else:
+                response.options = ["Yes, connect me with team", "No, it's fine"]
 
         if response.action == "EXISTING_TICKET":
             log.info("[chat] LLM returned EXISTING_TICKET — converting to ESCALATE for code-based matching")
             response.action = "ESCALATE"
 
         if response.action == "GREETING":
-            log.info("[chat] GREETING — showing %d answerable categories", len(GREETING_CATEGORIES))
+            if lang == "hindi":
+                response.options = GREETING_CATEGORIES_HI
+            log.info("[chat] GREETING — showing %d answerable categories", len(response.options or []))
 
-        # Intercept SEND_NOC: call the actual API and replace the reply.
-        if response.action == "SEND_NOC" and cust.get("leadID"):
-            log.info("[chat] SEND_NOC — calling NOC API for lead=%s", cust["leadID"])
-            noc_result = customer_api.send_noc(cust["leadID"])
-            if noc_result["success"]:
-                log.info("[chat] NOC sent successfully")
-                response.reply = (
-                    "Your No Dues Certificate (NOC) has been sent successfully "
-                    "to your registered email address. Please check your inbox."
-                )
+        if response.action == "SHOW_DOCUMENTS":
+            customer_id = cust.get("customerID")
+            if customer_id:
+                loans = customer_api.get_customer_documents(customer_id)
+                if loans:
+                    response.documents = loans
+                    log.info("[chat] SHOW_DOCUMENTS — returning %d loan(s) with documents", len(loans))
+                else:
+                    response.documents = []
+                    if lang == "hindi":
+                        response.reply = "आपके account में कोई document नहीं मिला।"
+                    else:
+                        response.reply = "No documents found for your account."
+                    log.info("[chat] SHOW_DOCUMENTS — no documents found")
             else:
-                log.error("[chat] NOC failed — %s", noc_result["message"])
-                response.reply = (
-                    "Sorry, we couldn't send the NOC right now. "
-                    f"Reason: {noc_result['message']}. "
-                    "Please try again later or contact our support team."
-                )
-                response.action = "RESOLVE"
+                response.documents = []
+                response.reply = "Could not fetch documents — customer not identified."
+                log.warning("[chat] SHOW_DOCUMENTS — no customerID available")
+
+        # SEND_NOC disabled — convert to ESCALATE so the team handles it manually.
+        if response.action == "SEND_NOC":
+            log.info("[chat] SEND_NOC → converting to ESCALATE (direct NOC send disabled)")
+            response.action = "ESCALATE"
+            response.category = response.category or "Loan Closure & NOC"
 
         # Intercept ESCALATE: check for existing ticket first, then create.
         if response.action == "ESCALATE":
@@ -1087,6 +1305,26 @@ def chat(req: ChatRequest) -> ChatResponse:
     except Exception as exc:
         log.error("[chat] Error: %s", exc, exc_info=True)
         return _fallback_response()
+
+
+@app.get("/documents/{customer_id}")
+def get_documents(customer_id: str):
+    log.info("[documents] Fetching documents for customer=%s", customer_id)
+    docs = customer_api.get_customer_documents(customer_id)
+    if docs is not None:
+        return {"success": True, "documents": docs}
+    return {"success": False, "documents": [], "message": "Could not fetch documents"}
+
+
+@app.get("/document-url/{doc_id}")
+def document_url(doc_id: str):
+    log.info("[document-url] === START === doc_id=%s", doc_id)
+    url = customer_api.get_document_url(doc_id)
+    if url:
+        log.info("[document-url] === SUCCESS === url_length=%d", len(url))
+        return {"success": True, "url": url}
+    log.warning("[document-url] === FAILED === no URL returned for doc_id=%s", doc_id)
+    return {"success": False, "message": "Could not retrieve document URL"}
 
 
 # ---------------------------------------------------------------------------

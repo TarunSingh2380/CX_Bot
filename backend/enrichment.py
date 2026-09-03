@@ -93,6 +93,31 @@ def _format_noc(noc: Optional[Dict[str, Any]]) -> str:
     return "  NOT eligible for NOC"
 
 
+def _format_documents(loans: List[Dict[str, Any]]) -> str:
+    if not loans:
+        return "  (no loan documents found)"
+    lines = []
+    for loan in loans:
+        loan_no = loan.get("loanNo") or "Unknown"
+        status = loan.get("status") or loan.get("loanStatus") or ""
+        amount = loan.get("disbursalAmount") or loan.get("loanAmtApproved") or ""
+        disbursal = loan.get("disbursalDate") or ""
+        header = f"  Loan {loan_no} — Status: {status}"
+        if amount:
+            header += f" | Amount: Rs {amount}"
+        if disbursal:
+            header += f" | Disbursed: {disbursal}"
+        lines.append(header)
+        inner_docs = loan.get("documents") or []
+        for doc in inner_docs:
+            doc_id = doc.get("documentID") or ""
+            doc_type = doc.get("type") or doc.get("documentType") or "Document"
+            lines.append(f"    - {doc_type} (ID: {doc_id})")
+        if not inner_docs:
+            lines.append("    (no documents)")
+    return "\n".join(lines)
+
+
 def _format_tickets(tickets: List[Dict[str, Any]]) -> str:
     if not tickets:
         return "  (no open support tickets)"
@@ -154,13 +179,14 @@ def build_customer_context(
     loan = customer_api.get_loan_details(lead_id)
     txns = customer_api.fetch_payment_details(lead_id)
     noc = customer_api.validate_noc_eligibility(lead_id)
+    docs = customer_api.get_customer_documents(cust["customerID"])
     tickets = (
         zoho.get_open_tickets_with_context(resolved_email)
         if resolved_email else []
     )
-    log.info("Data fetched — loan=%s txns=%d noc=%s tickets=%d",
+    log.info("Data fetched — loan=%s txns=%d noc=%s docs=%d tickets=%d",
              "yes" if loan else "no", len(txns or []),
-             "yes" if noc else "no", len(tickets))
+             "yes" if noc else "no", len(docs or []), len(tickets))
 
     sections: List[str] = [
         "--- CUSTOMER CONTEXT (retrieved from Ram Fincorp internal systems) ---",
@@ -183,6 +209,9 @@ def build_customer_context(
 
     sections.append("\n--- NOC ELIGIBILITY ---")
     sections.append(_format_noc(noc))
+
+    sections.append(f"\n--- CUSTOMER DOCUMENTS ({len(docs) if docs else 0}) ---")
+    sections.append(_format_documents(docs or []))
 
     sections.append("\n--- OPEN SUPPORT TICKETS ---")
     sections.append(_format_tickets(tickets))

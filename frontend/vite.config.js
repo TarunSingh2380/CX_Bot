@@ -13,6 +13,8 @@ export default defineConfig({
       "/categories": "http://localhost:8000",
       "/agent": "http://localhost:8000",
       "/api": "http://localhost:8000",
+      "/documents": "http://localhost:8000",
+      "/document-url": "http://localhost:8000",
     },
   },
 });
