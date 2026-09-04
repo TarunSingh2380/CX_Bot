@@ -31,6 +31,7 @@ from pydantic import BaseModel
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 import customer_api  # noqa: E402
+import db  # noqa: E402
 import enrichment  # noqa: E402
 import salesiq  # noqa: E402  — kept for future use, disconnected from flow
 import zoho  # noqa: E402
@@ -41,6 +42,16 @@ MODEL = "gpt-5-mini"
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 app = FastAPI(title="Ram Fincorp Support Chatbot")
+
+
+@app.on_event("startup")
+def startup():
+    try:
+        db.init_db()
+        log.info("Database connected and initialized")
+    except Exception as exc:
+        log.warning("Database not available — history disabled: %s", exc)
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -663,6 +674,13 @@ class ChatRequest(BaseModel):
     phone: Optional[str] = None
     category: Optional[str] = None
     language: Optional[str] = None
+    token: Optional[str] = None
+
+
+class HistoryRequest(BaseModel):
+    token: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
 
 
 VALID_ACTIONS = {
@@ -1063,6 +1081,38 @@ def _parse_llm_json(raw: str) -> tuple:
     return response, extra
 
 
+def _save_chat_to_db(req: "ChatRequest", response: ChatResponse, cust: dict):
+    """Save both user message and bot response to DB."""
+    try:
+        common = dict(
+            token=req.token,
+            email=cust.get("email") or req.email,
+            phone=cust.get("mobile") or req.phone,
+            customer_id=cust.get("customerID"),
+            lead_id=cust.get("leadID"),
+        )
+        db.save_message(role="user", content=req.message, **common)
+
+        msg_data = {}
+        if response.options:
+            msg_data["options"] = response.options
+        if response.documents:
+            msg_data["loanSelect"] = response.documents
+        if response.action == "EXISTING_TICKET" and response.ticket_number:
+            msg_data["existingTicket"] = {"ticketNumber": response.ticket_number}
+        if response.action == "ESCALATE" and response.ticket_number:
+            msg_data["ticketCreated"] = {"ticketNumber": response.ticket_number}
+
+        db.save_message(
+            role="assistant",
+            content=response.reply,
+            message_data=msg_data if msg_data else None,
+            **common,
+        )
+    except Exception as exc:
+        log.error("[chat] Failed to save to DB: %s", exc)
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -1096,6 +1146,77 @@ def identify(req: IdentifyRequest) -> IdentifyResponse:
     )
 
 
+@app.post("/history")
+def chat_history(req: HistoryRequest):
+    """Get or initialize chat history for a token."""
+    log.info("[history] token=%s...%s | email=%s | phone=%s",
+             req.token[:8], req.token[-4:], req.email, req.phone)
+
+    db.cleanup_old(hours=24)
+
+    messages = db.get_history(req.token)
+
+    if messages:
+        log.info("[history] Found %d existing messages", len(messages))
+        stored_info = db.get_user_info(req.token)
+        return {
+            "found": True,
+            "customer": {
+                "customerID": stored_info.get("customer_id") if stored_info else None,
+                "leadID": stored_info.get("lead_id") if stored_info else None,
+                "email": stored_info.get("email") if stored_info else req.email,
+                "mobile": stored_info.get("phone") if stored_info else req.phone,
+            },
+            "messages": messages,
+        }
+
+    log.info("[history] No history — identifying user")
+    context, cust = enrichment.build_customer_context(
+        email=req.email, phone=req.phone
+    )
+
+    if not cust.get("customerID"):
+        log.info("[history] Customer NOT FOUND")
+        return {"found": False, "customer": None, "messages": []}
+
+    log.info("[history] Customer FOUND — id=%s, sending welcome", cust["customerID"])
+
+    welcome = "Please select your preferred language to continue.\nKripya apni bhasha chunein."
+    welcome_data = {"languageSelect": True}
+
+    db.save_message(
+        token=req.token,
+        role="assistant",
+        content=welcome,
+        email=cust.get("email") or req.email,
+        phone=cust.get("mobile") or req.phone,
+        customer_id=cust.get("customerID"),
+        lead_id=cust.get("leadID"),
+        message_data=welcome_data,
+    )
+
+    return {
+        "found": True,
+        "customer": {
+            "customerID": cust.get("customerID"),
+            "leadID": cust.get("leadID"),
+            "email": cust.get("email"),
+            "mobile": cust.get("mobile"),
+        },
+        "messages": [
+            {"role": "assistant", "content": welcome, **welcome_data}
+        ],
+    }
+
+
+@app.post("/history/clear")
+def clear_history(req: HistoryRequest):
+    """Clear chat history for a token (used on logout)."""
+    log.info("[history/clear] token=%s...%s", req.token[:8], req.token[-4:])
+    deleted = db.delete_history(req.token)
+    return {"success": True, "deleted": deleted}
+
+
 @app.post("/chat", response_model=ChatResponse)
 def chat(req: ChatRequest) -> ChatResponse:
     log.info("[chat] message=%s | email=%s | category=%s", req.message[:60], req.email, req.category)
@@ -1114,7 +1235,7 @@ def chat(req: ChatRequest) -> ChatResponse:
                 other_reply = "हाँ ज़रूर! अपना सवाल या problem लिख दीजिए, मैं आपकी मदद करता हूँ।"
             else:
                 other_reply = "Sure! Please type your question or issue, I'll help you."
-            return ChatResponse(
+            resp = ChatResponse(
                 action="RESOLVE",
                 reply=other_reply,
                 category="Other",
@@ -1122,6 +1243,15 @@ def chat(req: ChatRequest) -> ChatResponse:
                 ticket_number=None,
                 options=None,
             )
+            if req.token:
+                cust_data = db.get_user_info(req.token) or {}
+                _save_chat_to_db(req, resp, {
+                    "email": cust_data.get("email") or req.email,
+                    "mobile": cust_data.get("phone") or req.phone,
+                    "customerID": cust_data.get("customer_id"),
+                    "leadID": cust_data.get("lead_id"),
+                })
+            return resp
         cat_name = category_match["name_hi"] if lang == "hindi" else category_match["name"]
         questions = category_match.get("questions_hi", category_match["questions"]) if lang == "hindi" else category_match["questions"]
         log.info("[chat] Category selected: %s — returning %d questions",
@@ -1130,7 +1260,7 @@ def chat(req: ChatRequest) -> ChatResponse:
             cat_reply = f"{cat_name} के बारे में ये common सवाल हैं। कोई एक चुनें या अपना सवाल लिख दीजिए:"
         else:
             cat_reply = f"Here are common questions about {cat_name}. Choose one or type your own question:"
-        return ChatResponse(
+        resp = ChatResponse(
             action="RESOLVE",
             reply=cat_reply,
             category=category_match["name"],
@@ -1138,6 +1268,15 @@ def chat(req: ChatRequest) -> ChatResponse:
             ticket_number=None,
             options=questions,
         )
+        if req.token:
+            cust_data = db.get_user_info(req.token) or {}
+            _save_chat_to_db(req, resp, {
+                "email": cust_data.get("email") or req.email,
+                "mobile": cust_data.get("phone") or req.phone,
+                "customerID": cust_data.get("customer_id"),
+                "leadID": cust_data.get("lead_id"),
+            })
+        return resp
 
     context, cust = enrichment.build_customer_context(
         email=req.email, phone=req.phone
@@ -1296,6 +1435,10 @@ def chat(req: ChatRequest) -> ChatResponse:
                         "Sorry, abhi kuch problem aa rahi hai. "
                         "Thodi der baad dobara try karein."
                     )
+
+        # Save to DB if token is provided
+        if req.token:
+            _save_chat_to_db(req, response, cust)
 
         return response
     except Exception as exc:

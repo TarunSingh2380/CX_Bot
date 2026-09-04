@@ -15,6 +15,7 @@ export default defineConfig({
       "/api": "http://localhost:8000",
       "/documents": "http://localhost:8000",
       "/document-url": "http://localhost:8000",
+      "/history": "http://localhost:8000",
     },
   },
 });

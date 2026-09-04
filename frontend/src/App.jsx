@@ -8,6 +8,8 @@ export default function App() {
   const [identifying, setIdentifying] = useState(false);
   const [identifyError, setIdentifyError] = useState("");
   const [customer, setCustomer] = useState(null);
+  const [token, setToken] = useState("");
+  const tokenRef = useRef("");
 
   const [language, setLanguage] = useState(null); // "english" | "hindi"
   const languageRef = useRef(null);
@@ -34,20 +36,7 @@ export default function App() {
     });
   }, [messages, isTyping]);
 
-  // Show language selection as the first chat message when customer is identified.
   const greetedRef = useRef(false);
-  useEffect(() => {
-    if (customer && !greetedRef.current) {
-      greetedRef.current = true;
-      setMessages([
-        {
-          role: "assistant",
-          content: "Please select your preferred language to continue.\nKripya apni bhasha chunein.",
-          languageSelect: true,
-        },
-      ]);
-    }
-  }, [customer]);
 
   // Poll for agent messages when in agent mode
   useEffect(() => {
@@ -188,16 +177,18 @@ export default function App() {
     setIsTyping(true);
     const greetMsg = lang === "hindi" ? "नमस्ते" : "hi";
     try {
+      const body = {
+        message: greetMsg,
+        conversation_history: [],
+        email: customer.email || customer.inputEmail,
+        phone: customer.mobile || customer.inputPhone,
+        language: lang,
+      };
+      if (tokenRef.current) body.token = tokenRef.current;
       const res = await fetch(`${API_BASE}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: greetMsg,
-          conversation_history: [],
-          email: customer.email || customer.inputEmail,
-          phone: customer.mobile || customer.inputPhone,
-          language: lang,
-        }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
@@ -229,8 +220,61 @@ export default function App() {
     setIdentifying(true);
 
     const isEmail = val.includes("@");
-    const body = isEmail ? { email: val } : { phone: val };
+    const tok = token.trim();
+    tokenRef.current = tok;
 
+    if (tok) {
+      try {
+        const histBody = { token: tok };
+        if (isEmail) histBody.email = val; else histBody.phone = val;
+        const res = await fetch(`${API_BASE}/history`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(histBody),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (!data.found) {
+          setIdentifyError("No customer found with this email/phone. Please check and try again.");
+          return;
+        }
+        greetedRef.current = true;
+        const cust = data.customer || {};
+        setCustomer({
+          ...cust,
+          found: true,
+          inputEmail: isEmail ? val : null,
+          inputPhone: isEmail ? null : val,
+        });
+        const restored = (data.messages || []).map((m) => ({
+          role: m.role,
+          content: m.content,
+          options: m.options || null,
+          languageSelect: m.languageSelect || false,
+          loanSelect: m.loanSelect || null,
+          loanDocs: m.loanDocs || null,
+          existingTicket: m.existingTicket || null,
+          ticketCreated: m.ticketCreated || null,
+        }));
+        const langMsg = restored.find(
+          (m) => m.role === "user" && (m.content === "English" || m.content === "हिंदी" || m.content === "hi" || m.content === "नमस्ते")
+        );
+        if (langMsg) {
+          const detectedLang = (langMsg.content === "हिंदी" || langMsg.content === "नमस्ते") ? "hindi" : "english";
+          setLanguage(detectedLang);
+          languageRef.current = detectedLang;
+        }
+        setMessages(restored);
+        return;
+      } catch {
+        setIdentifyError("Could not connect to the server. Please try again.");
+        return;
+      } finally {
+        setIdentifying(false);
+      }
+    }
+
+    const body = isEmail ? { email: val } : { phone: val };
     try {
       const res = await fetch(`${API_BASE}/identify`, {
         method: "POST",
@@ -240,16 +284,22 @@ export default function App() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       if (!data.found) {
-        setIdentifyError(
-          "No customer found with this email/phone. Please check and try again."
-        );
+        setIdentifyError("No customer found with this email/phone. Please check and try again.");
         return;
       }
+      greetedRef.current = true;
       setCustomer({
         ...data,
         inputEmail: isEmail ? val : null,
         inputPhone: isEmail ? null : val,
       });
+      setMessages([
+        {
+          role: "assistant",
+          content: "Please select your preferred language to continue.\nKripya apni bhasha chunein.",
+          languageSelect: true,
+        },
+      ]);
     } catch {
       setIdentifyError("Could not connect to the server. Please try again.");
     } finally {
@@ -296,16 +346,18 @@ export default function App() {
     })).filter((m) => m.role === "user" || m.role === "assistant");
 
     try {
+      const chatBody = {
+        message: msg,
+        conversation_history: history,
+        email: customer.email || customer.inputEmail,
+        phone: customer.mobile || customer.inputPhone,
+        language: languageRef.current,
+      };
+      if (tokenRef.current) chatBody.token = tokenRef.current;
       const res = await fetch(`${API_BASE}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: msg,
-          conversation_history: history,
-          email: customer.email || customer.inputEmail,
-          phone: customer.mobile || customer.inputPhone,
-          language: languageRef.current,
-        }),
+        body: JSON.stringify(chatBody),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
@@ -397,6 +449,21 @@ export default function App() {
                   onKeyDown={handleKeyDown}
                   disabled={identifying}
                   autoFocus
+                />
+              </div>
+
+              <div className="input-group" style={{ marginTop: 4 }}>
+                <label className="input-label">
+                  Session Token <span style={{ color: "#888", fontWeight: 400 }}>(optional - for testing)</span>
+                </label>
+                <input
+                  className="identify-input"
+                  type="text"
+                  placeholder="e.g. abc123-session-token"
+                  value={token}
+                  onChange={(e) => setToken(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  disabled={identifying}
                 />
               </div>
 
@@ -519,6 +586,8 @@ export default function App() {
                 languageRef.current = null;
                 setMessages([]);
                 setInput("");
+                setToken("");
+                tokenRef.current = "";
                 setDocuments(null);
                 setAgentMode(false);
                 setConversationId(null);
