@@ -1512,9 +1512,10 @@ def agent_send(req: AgentSendRequest):
     return {"success": success}
 
 
+SERVE_FRONTEND = os.getenv("SERVE_FRONTEND", "false").lower() == "true"
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 
-if FRONTEND_DIR.is_dir():
+if SERVE_FRONTEND and FRONTEND_DIR.is_dir():
     app.mount("/assets", StaticFiles(directory=FRONTEND_DIR / "assets"), name="assets")
 
     @app.get("/{full_path:path}")
