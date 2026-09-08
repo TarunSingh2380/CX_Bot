@@ -45,7 +45,7 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 
 app = FastAPI(
     title="Ram Fincorp Support Chatbot",
-    root_path="/repo"
+    root_path="/chatbot"
 )
 
 
