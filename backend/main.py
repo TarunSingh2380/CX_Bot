@@ -41,7 +41,12 @@ MODEL = "gpt-5-mini"
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-app = FastAPI(title="Ram Fincorp Support Chatbot")
+# app = FastAPI(title="Ram Fincorp Support Chatbot")
+
+app = FastAPI(
+    title="Ram Fincorp Support Chatbot",
+    root_path="/repo"
+)
 
 
 @app.on_event("startup")
@@ -700,6 +705,7 @@ class ChatResponse(BaseModel):
     ticket_number: Optional[str] = None
     options: Optional[List[str]] = None
     documents: Optional[List[Dict[str, Any]]] = None
+    document_files: Optional[List[Dict[str, Any]]] = None
 
 
 # ---------------------------------------------------------------------------
@@ -790,7 +796,9 @@ For every customer message, you must respond with a JSON object in this exact fo
   "confidence": 0-100,
   "ticket_number": "matching ticket number or null",
   "ticket_subject": "short subject for support ticket (only when ESCALATE)",
-  "ticket_description": "detailed description for support ticket (only when ESCALATE)"
+  "ticket_description": "detailed description for support ticket (only when ESCALATE)",
+  "doc_type": "document type if mentioned (only when SHOW_DOCUMENTS, else null)",
+  "loan_no": "loan number if mentioned (only when SHOW_DOCUMENTS, else null)"
 }
 
 Follow these decision tiers IN ORDER:
@@ -809,17 +817,35 @@ send it. Your reply should say something like "I'm forwarding your NOC \
 request to our team. They will send it to your registered email."
 
 TIER 1.5 — SHOW_DOCUMENTS (customer asks for documents/download):
-  If the customer asks to see, view, download, or get their documents \
-(sanction letter, loan agreement, NOC document, any loan document), set \
-action to "SHOW_DOCUMENTS". The system will automatically fetch and display \
-the documents with download buttons — you do NOT need to list document IDs \
-or names. Just write a short friendly reply like "Here are your documents:" \
-or "Yeh rahe aapke documents:" (in customer's language).
-  IMPORTANT: Do NOT offer to email documents. Do NOT say "I'll send to your \
-email". The customer can download directly from the chat. Do NOT list \
-document IDs in your reply text — the system handles that.
-  If the customer asks for documents of a SPECIFIC loan, mention that loan \
-number in your reply. The system will show all available documents.
+  If the customer asks to see, view, download, or get their documents, set \
+action to "SHOW_DOCUMENTS". This includes ANY of these requests:
+  - "show my documents", "give me list of docs", "documents dikhao"
+  - "meri documents ki list do", "my documents", "mere docs"
+  - specific docs: sanction letter, loan agreement, NOC, KFS, KYC, etc.
+  - "download my documents", "I want to see my papers"
+  NEVER CLARIFY when the customer asks for documents. Always use \
+SHOW_DOCUMENTS directly. Do NOT ask "which documents?" or "which type?".
+
+  IMPORTANT — Extract these fields from the customer's message:
+  - "doc_type": the specific document type if mentioned. Examples: "KYC", \
+"KFS", "sanction letter", "loan agreement", "NOC", "welcome letter". \
+Set to null if not mentioned or if the customer asked for ALL documents.
+  - "loan_no": the loan number if mentioned. Examples: "HC2345", "RF12345". \
+Set to null if not mentioned.
+
+  The system will handle the 3 cases automatically:
+  Case 1 — No loan_no, no doc_type (e.g. "show my docs"): System shows \
+list of loans, customer picks one, then sees all documents for that loan.
+  Case 2 — doc_type but no loan_no (e.g. "give me KYC"): System shows \
+list of loans that have that document, customer picks one, then sees it.
+  Case 3 — Both loan_no and doc_type (e.g. "KYC of HC2345"): System \
+directly shows the document with download option.
+
+  Just write a short friendly reply like "Here are your documents:" or \
+"Yeh rahe aapke documents:" (in customer's language). Do NOT list \
+document names or IDs in your reply — the system handles the display.
+  IMPORTANT: Do NOT offer to email documents. Do NOT say "I'll send to \
+your email". The customer can download directly from the chat.
 
 TIER 2 — RESOLVE (USE THIS whenever customer data is available):
   If the customer context below contains data that can answer the query, \
@@ -1076,6 +1102,8 @@ def _parse_llm_json(raw: str) -> tuple:
     extra = {
         "ticket_subject": str(data.get("ticket_subject", "")).strip(),
         "ticket_description": str(data.get("ticket_description", "")).strip(),
+        "doc_type": str(data.get("doc_type", "")).strip() or None,
+        "loan_no": str(data.get("loan_no", "")).strip() or None,
     }
 
     return response, extra
@@ -1091,26 +1119,32 @@ def _save_chat_to_db(req: "ChatRequest", response: ChatResponse, cust: dict):
             customer_id=cust.get("customerID"),
             lead_id=cust.get("leadID"),
         )
+        log.info("[db-save] Saving USER message: '%s'", req.message[:80])
         db.save_message(role="user", content=req.message, **common)
 
         msg_data = {}
         if response.options:
             msg_data["options"] = response.options
         if response.documents:
-            msg_data["loanSelect"] = response.documents
+            msg_data["documents"] = response.documents
+        if response.document_files:
+            msg_data["document_files"] = response.document_files
         if response.action == "EXISTING_TICKET" and response.ticket_number:
             msg_data["existingTicket"] = {"ticketNumber": response.ticket_number}
         if response.action == "ESCALATE" and response.ticket_number:
             msg_data["ticketCreated"] = {"ticketNumber": response.ticket_number}
 
+        log.info("[db-save] Saving ASSISTANT message: '%s' | msg_data_keys=%s",
+                 response.reply[:80], list(msg_data.keys()) if msg_data else "none")
         db.save_message(
             role="assistant",
             content=response.reply,
             message_data=msg_data if msg_data else None,
             **common,
         )
+        log.info("[db-save] Both messages saved successfully for token=%s...", req.token[:20])
     except Exception as exc:
-        log.error("[chat] Failed to save to DB: %s", exc)
+        log.error("[db-save] FAILED to save to DB: %s", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -1149,16 +1183,22 @@ def identify(req: IdentifyRequest) -> IdentifyResponse:
 @app.post("/history")
 def chat_history(req: HistoryRequest):
     """Get or initialize chat history for a token."""
-    log.info("[history] token=%s...%s | email=%s | phone=%s",
-             req.token[:8], req.token[-4:], req.email, req.phone)
+    log.info("=" * 60)
+    log.info("[history] ===== INCOMING REQUEST =====")
+    log.info("[history] token=%s (full length=%d)", req.token[:20] + "...", len(req.token))
+    log.info("[history] email=%s | phone=%s", req.email, req.phone)
 
     db.cleanup_old(hours=24)
 
     messages = db.get_history(req.token)
 
     if messages:
-        log.info("[history] Found %d existing messages", len(messages))
+        log.info("[history] Found %d existing messages in DB", len(messages))
+        for i, m in enumerate(messages):
+            log.info("[history]   msg[%d] role=%s | content=%s", i, m["role"], m["content"][:80])
         stored_info = db.get_user_info(req.token)
+        log.info("[history] Stored user info: %s", stored_info)
+        log.info("[history] ===== RESPONSE: returning existing history =====")
         return {
             "found": True,
             "customer": {
@@ -1170,16 +1210,33 @@ def chat_history(req: HistoryRequest):
             "messages": messages,
         }
 
-    log.info("[history] No history — identifying user")
+    log.info("[history] No history found in DB — identifying user via enrichment APIs")
     context, cust = enrichment.build_customer_context(
         email=req.email, phone=req.phone
     )
+    log.info("[history] Enrichment result: %s", {k: v for k, v in cust.items() if k in ("customerID", "leadID", "email", "mobile")})
 
     if not cust.get("customerID"):
-        log.info("[history] Customer NOT FOUND")
+        log.info("[history] ===== RESPONSE: Customer NOT FOUND =====")
         return {"found": False, "customer": None, "messages": []}
 
-    log.info("[history] Customer FOUND — id=%s, sending welcome", cust["customerID"])
+    # Re-check DB — another concurrent /history call may have created
+    # the welcome message while we were waiting for enrichment APIs.
+    recheck = db.get_history(req.token)
+    if recheck:
+        log.info("[history] Concurrent call already created %d messages — returning those", len(recheck))
+        return {
+            "found": True,
+            "customer": {
+                "customerID": cust.get("customerID"),
+                "leadID": cust.get("leadID"),
+                "email": cust.get("email"),
+                "mobile": cust.get("mobile"),
+            },
+            "messages": recheck,
+        }
+
+    log.info("[history] Customer FOUND — id=%s, saving welcome message to DB", cust["customerID"])
 
     welcome = "Please select your preferred language to continue.\nKripya apni bhasha chunein."
     welcome_data = {"languageSelect": True}
@@ -1195,6 +1252,7 @@ def chat_history(req: HistoryRequest):
         message_data=welcome_data,
     )
 
+    log.info("[history] ===== RESPONSE: new user, returning welcome =====")
     return {
         "found": True,
         "customer": {
@@ -1212,14 +1270,22 @@ def chat_history(req: HistoryRequest):
 @app.post("/history/clear")
 def clear_history(req: HistoryRequest):
     """Clear chat history for a token (used on logout)."""
-    log.info("[history/clear] token=%s...%s", req.token[:8], req.token[-4:])
+    log.info("=" * 60)
+    log.info("[history/clear] ===== INCOMING REQUEST =====")
+    log.info("[history/clear] token=%s (full length=%d)", req.token[:20] + "...", len(req.token))
     deleted = db.delete_history(req.token)
     return {"success": True, "deleted": deleted}
 
 
 @app.post("/chat", response_model=ChatResponse)
 def chat(req: ChatRequest) -> ChatResponse:
-    log.info("[chat] message=%s | email=%s | category=%s", req.message[:60], req.email, req.category)
+    log.info("=" * 60)
+    log.info("[chat] ===== INCOMING REQUEST =====")
+    log.info("[chat] message=%s", req.message[:100])
+    log.info("[chat] email=%s | phone=%s", req.email, req.phone)
+    log.info("[chat] language=%s | category=%s", req.language, req.category)
+    log.info("[chat] token=%s", (req.token[:20] + "..." if req.token else "NONE"))
+    log.info("[chat] conversation_history=%d messages", len(req.conversation_history))
 
     # Check if user selected a category name (English or Hindi) — return its questions
     msg_lower = req.message.strip().lower()
@@ -1311,9 +1377,23 @@ def chat(req: ChatRequest) -> ChatResponse:
         system_content += f"\n\n{context}"
 
     messages = [{"role": "system", "content": system_content}]
-    for m in req.conversation_history:
-        messages.append({"role": m.role, "content": m.content})
+    if req.token and not req.conversation_history:
+        log.info("[chat] Token provided, no conversation_history sent — loading from DB")
+        db_history = db.get_history(req.token)
+        for m in db_history:
+            if m["role"] in ("user", "assistant"):
+                messages.append({"role": m["role"], "content": m["content"]})
+        log.info("[chat] Loaded %d messages from DB history", len(db_history))
+        for i, m in enumerate(db_history):
+            log.info("[chat]   db_msg[%d] role=%s | content=%s", i, m["role"], m["content"][:60])
+    elif req.conversation_history:
+        log.info("[chat] Using conversation_history from request (%d messages)", len(req.conversation_history))
+        for m in req.conversation_history:
+            messages.append({"role": m.role, "content": m.content})
+    else:
+        log.info("[chat] No token and no conversation_history — fresh conversation")
     messages.append({"role": "user", "content": req.message})
+    log.info("[chat] Total messages to LLM: %d (including system prompt)", len(messages))
 
     try:
         log.info("[chat] Calling LLM (%s)...", MODEL)
@@ -1352,22 +1432,86 @@ def chat(req: ChatRequest) -> ChatResponse:
 
         if response.action == "SHOW_DOCUMENTS":
             customer_id = cust.get("customerID")
-            if customer_id:
-                loans = customer_api.get_customer_documents(customer_id)
-                if loans:
-                    response.documents = loans
-                    log.info("[chat] SHOW_DOCUMENTS — returning %d loan(s) with documents", len(loans))
-                else:
+            doc_type = extra.get("doc_type")
+            loan_no = extra.get("loan_no")
+            log.info("[chat] SHOW_DOCUMENTS — doc_type=%s | loan_no=%s", doc_type, loan_no)
+
+            if not customer_id:
+                response.documents = []
+                response.reply = "Could not fetch documents — customer not identified."
+                log.warning("[chat] SHOW_DOCUMENTS — no customerID available")
+            else:
+                all_loans = customer_api.get_customer_documents(customer_id) or []
+                log.info("[chat] SHOW_DOCUMENTS — fetched %d loan(s) from API", len(all_loans))
+
+                if not all_loans:
                     response.documents = []
                     if lang == "hindi":
                         response.reply = "आपके account में कोई document नहीं मिला।"
                     else:
                         response.reply = "No documents found for your account."
-                    log.info("[chat] SHOW_DOCUMENTS — no documents found")
-            else:
-                response.documents = []
-                response.reply = "Could not fetch documents — customer not identified."
-                log.warning("[chat] SHOW_DOCUMENTS — no customerID available")
+
+                elif loan_no:
+                    # Case 3 (or 2 with loan): loan_no specified → find that loan
+                    matched = next(
+                        (l for l in all_loans
+                         if str(l.get("loanNo", "")).lower() == loan_no.lower()),
+                        None,
+                    )
+                    if not matched:
+                        response.documents = []
+                        reply_no = loan_no
+                        if lang == "hindi":
+                            response.reply = f"Loan {reply_no} nahi mila. Yeh rahe aapke loans:"
+                        else:
+                            response.reply = f"Loan {reply_no} not found. Here are your loans:"
+                        response.documents = all_loans
+                        log.info("[chat] SHOW_DOCUMENTS — loan_no '%s' not found, showing all loans", loan_no)
+                    else:
+                        docs = matched.get("documents") or []
+                        if doc_type:
+                            docs = [d for d in docs
+                                    if doc_type.lower() in (d.get("type") or d.get("documentType") or "").lower()]
+                        if docs:
+                            response.document_files = docs
+                            log.info("[chat] SHOW_DOCUMENTS — Case 3: returning %d file(s) for loan %s", len(docs), loan_no)
+                        else:
+                            dt = doc_type or "document"
+                            if lang == "hindi":
+                                response.reply = f"Loan {loan_no} mein {dt} nahi mila."
+                            else:
+                                response.reply = f"No {dt} found for loan {loan_no}."
+                            log.info("[chat] SHOW_DOCUMENTS — no matching docs for loan %s", loan_no)
+
+                elif doc_type:
+                    # Case 2: doc_type but no loan_no → filter loans to those having this doc type
+                    filtered_loans = []
+                    for loan in all_loans:
+                        matching_docs = [
+                            d for d in (loan.get("documents") or [])
+                            if doc_type.lower() in (d.get("type") or d.get("documentType") or "").lower()
+                        ]
+                        if matching_docs:
+                            filtered_loans.append({**loan, "documents": matching_docs})
+
+                    if len(filtered_loans) == 1:
+                        # Only one loan has this doc → skip loan selection, show files directly
+                        response.document_files = filtered_loans[0].get("documents") or []
+                        log.info("[chat] SHOW_DOCUMENTS — Case 2 (single loan): returning %d file(s)", len(response.document_files))
+                    elif filtered_loans:
+                        response.documents = filtered_loans
+                        log.info("[chat] SHOW_DOCUMENTS — Case 2: %d loan(s) have %s docs", len(filtered_loans), doc_type)
+                    else:
+                        if lang == "hindi":
+                            response.reply = f"आपके किसी loan में {doc_type} document नहीं मिला।"
+                        else:
+                            response.reply = f"No {doc_type} documents found in any of your loans."
+                        log.info("[chat] SHOW_DOCUMENTS — no loans have %s docs", doc_type)
+
+                else:
+                    # Case 1: no loan_no, no doc_type → show all loans
+                    response.documents = all_loans
+                    log.info("[chat] SHOW_DOCUMENTS — Case 1: returning all %d loan(s)", len(all_loans))
 
         # SEND_NOC disabled — convert to ESCALATE so the team handles it manually.
         if response.action == "SEND_NOC":
@@ -1438,8 +1582,19 @@ def chat(req: ChatRequest) -> ChatResponse:
 
         # Save to DB if token is provided
         if req.token:
+            log.info("[chat] Token present — saving user msg + bot response to DB")
             _save_chat_to_db(req, response, cust)
+            log.info("[chat] DB save complete")
+        else:
+            log.info("[chat] No token — skipping DB save")
 
+        log.info("[chat] ===== RESPONSE =====")
+        log.info("[chat] action=%s | confidence=%s | category=%s", response.action, response.confidence, response.category)
+        log.info("[chat] reply=%s", response.reply[:120])
+        log.info("[chat] options=%s", response.options)
+        log.info("[chat] ticket_number=%s", response.ticket_number)
+        log.info("[chat] documents=%d", len(response.documents) if response.documents else 0)
+        log.info("[chat] document_files=%d", len(response.document_files) if response.document_files else 0)
         return response
     except Exception as exc:
         log.error("[chat] Error: %s", exc, exc_info=True)
@@ -1448,16 +1603,21 @@ def chat(req: ChatRequest) -> ChatResponse:
 
 @app.get("/documents/{customer_id}")
 def get_documents(customer_id: str):
-    log.info("[documents] Fetching documents for customer=%s", customer_id)
+    log.info("=" * 60)
+    log.info("[documents] ===== INCOMING REQUEST =====")
+    log.info("[documents] customer_id=%s", customer_id)
     docs = customer_api.get_customer_documents(customer_id)
     if docs is not None:
+        log.info("[documents] ===== RESPONSE: %d document(s) =====", len(docs))
         return {"success": True, "documents": docs}
+    log.info("[documents] ===== RESPONSE: FAILED =====")
     return {"success": False, "documents": [], "message": "Could not fetch documents"}
 
 
 @app.get("/document-url/{doc_id}")
 def document_url(doc_id: str):
-    log.info("[document-url] === START === doc_id=%s", doc_id)
+    log.info("=" * 60)
+    log.info("[document-url] ===== INCOMING REQUEST ===== doc_id=%s", doc_id)
     url = customer_api.get_document_url(doc_id)
     if url:
         log.info("[document-url] === SUCCESS === url_length=%d", len(url))
