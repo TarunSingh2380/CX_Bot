@@ -251,8 +251,8 @@ export default function App() {
           content: m.content,
           options: m.options || null,
           languageSelect: m.languageSelect || false,
-          loanSelect: m.loanSelect || null,
-          loanDocs: m.loanDocs || null,
+          loanSelect: m.documents || m.loanSelect || null,
+          loanDocs: m.document_files || m.loanDocs || null,
           existingTicket: m.existingTicket || null,
           ticketCreated: m.ticketCreated || null,
         }));
@@ -367,6 +367,7 @@ export default function App() {
         content: data.reply,
         options: data.options || null,
         loanSelect: (data.documents && data.documents.length > 0) ? data.documents : null,
+        loanDocs: (data.document_files && data.document_files.length > 0) ? data.document_files : null,
         existingTicket:
           data.action === "EXISTING_TICKET"
             ? { ticketNumber: data.ticket_number }

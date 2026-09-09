@@ -206,6 +206,24 @@ def send_noc(lead_id: str) -> Dict[str, Any]:
         return {"success": False, "message": str(exc)}
 
 
+# ---- API 8: Get Loan History ----------------------------------------------
+def get_loan_history(lead_id: str, customer_id: str) -> Optional[List[Dict[str, Any]]]:
+    if not is_configured() or not lead_id or not customer_id:
+        return None
+    try:
+        log.info("get_loan_history: leadId=%s customerId=%s", lead_id, customer_id)
+        body = _get_json("/get-loan-history", {"leadId": lead_id, "customerId": customer_id})
+        if not body.get("success"):
+            log.info("get_loan_history: %s", body.get("message", "not found"))
+            return None
+        loans = body.get("data") or []
+        log.info("get_loan_history: SUCCESS — %d loan(s)", len(loans))
+        return loans
+    except Exception as exc:
+        log.error("get_loan_history error: %s", exc)
+        return None
+
+
 # ---- API 6: Get Customer Documents (list) --------------------------------
 def get_customer_documents(customer_id: str) -> Optional[List[Dict[str, Any]]]:
     if not RAM_NODE_BEARER_TOKEN or not customer_id:

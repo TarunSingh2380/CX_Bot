@@ -133,6 +133,9 @@ def get_history(token: str) -> List[Dict[str, Any]]:
                 data = row["message_data"]
                 if isinstance(data, str):
                     data = json.loads(data)
+                # backward compat: old records stored documents as "loanSelect"
+                if "loanSelect" in data and "documents" not in data:
+                    data["documents"] = data.pop("loanSelect")
                 msg.update(data)
             messages.append(msg)
 

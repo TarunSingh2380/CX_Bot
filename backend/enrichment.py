@@ -93,6 +93,43 @@ def _format_noc(noc: Optional[Dict[str, Any]]) -> str:
     return "  NOT eligible for NOC"
 
 
+def _format_loan_history(loans: List[Dict[str, Any]]) -> str:
+    if not loans:
+        return "  (no loan history found)"
+    lines = []
+    for loan in loans:
+        loan_no = loan.get("loanNo") or "Unknown"
+        status = loan.get("status") or ""
+        amount = loan.get("loanAmount") or ""
+        disbursal = loan.get("disbursalDate") or ""
+        repayment = loan.get("repaymentDate") or ""
+        collected = loan.get("collectedDate") or ""
+        tenure = loan.get("tenure") or ""
+        roi = loan.get("roi") or ""
+        lead_type = loan.get("leadType") or ""
+        product_type = loan.get("productType") or ""
+        line = f"  Loan {loan_no} — Status: {status}"
+        if amount:
+            line += f" | Amount: Rs {amount}"
+        if disbursal:
+            line += f" | Disbursed: {disbursal}"
+        if repayment:
+            line += f" | Repayment: {repayment}"
+        if collected:
+            collected_str = str(collected)[:10] if isinstance(collected, str) else str(collected)
+            line += f" | Collected: {collected_str}"
+        if tenure:
+            line += f" | Tenure: {tenure} days"
+        if roi:
+            line += f" | ROI: {roi}%"
+        if product_type:
+            line += f" | Type: {product_type}"
+        if lead_type:
+            line += f" | {lead_type}"
+        lines.append(line)
+    return "\n".join(lines)
+
+
 def _format_documents(loans: List[Dict[str, Any]]) -> str:
     if not loans:
         return "  (no loan documents found)"
@@ -179,14 +216,16 @@ def build_customer_context(
     loan = customer_api.get_loan_details(lead_id)
     txns = customer_api.fetch_payment_details(lead_id)
     noc = customer_api.validate_noc_eligibility(lead_id)
+    loan_history = customer_api.get_loan_history(lead_id, cust["customerID"])
     docs = customer_api.get_customer_documents(cust["customerID"])
     tickets = (
         zoho.get_open_tickets_with_context(resolved_email)
         if resolved_email else []
     )
-    log.info("Data fetched — loan=%s txns=%d noc=%s docs=%d tickets=%d",
+    log.info("Data fetched — loan=%s txns=%d noc=%s history=%d docs=%d tickets=%d",
              "yes" if loan else "no", len(txns or []),
-             "yes" if noc else "no", len(docs or []), len(tickets))
+             "yes" if noc else "no", len(loan_history or []),
+             len(docs or []), len(tickets))
 
     sections: List[str] = [
         "--- CUSTOMER CONTEXT (retrieved from Ram Fincorp internal systems) ---",
@@ -206,6 +245,9 @@ def build_customer_context(
 
     sections.append(f"\n--- RECENT PAYMENTS ({len(txns) if txns else 0}) ---")
     sections.append(_format_transactions(txns or []))
+
+    sections.append(f"\n--- LOAN HISTORY ({len(loan_history) if loan_history else 0}) ---")
+    sections.append(_format_loan_history(loan_history or []))
 
     sections.append("\n--- NOC ELIGIBILITY ---")
     sections.append(_format_noc(noc))
