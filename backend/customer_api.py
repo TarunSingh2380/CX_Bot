@@ -127,6 +127,18 @@ async def identify_user(
         return None
 
 
+_JUNK_EMAIL = {"na", "n/a", "null", "none", "string", "undefined", ""}
+
+
+def _clean_email(raw: Optional[str]) -> Optional[str]:
+    if not raw:
+        return None
+    val = str(raw).strip()
+    if val.lower() in _JUNK_EMAIL or "@" not in val:
+        return None
+    return val
+
+
 def extract_customer_data(
     profile: Optional[Dict[str, Any]],
 ) -> Dict[str, Optional[str]]:
@@ -142,7 +154,7 @@ def extract_customer_data(
     return {
         "customerID": str(data["customerID"]) if data.get("customerID") else None,
         "leadID": str(data["leadID"]) if data.get("leadID") else None,
-        "email": str(data["email"]).strip() if data.get("email") else None,
+        "email": _clean_email(data.get("email")),
         "mobile": str(data["mobile"]).strip() if data.get("mobile") else None,
     }
 
