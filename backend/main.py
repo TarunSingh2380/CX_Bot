@@ -10,11 +10,12 @@ Endpoints:
 import json
 import logging
 import os
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
 
 logging.basicConfig(
     level=logging.INFO,
@@ -25,7 +26,7 @@ log = logging.getLogger("chatbot")
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from openai import OpenAI
+from openai import AsyncOpenAI
 from pydantic import BaseModel
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "..", ".env"))
@@ -39,7 +40,7 @@ import zoho  # noqa: E402
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 MODEL = "gpt-5-mini"
 
-client = OpenAI(api_key=OPENAI_API_KEY)
+client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 
 # app = FastAPI(title="Ram Fincorp Support Chatbot")
 
@@ -51,11 +52,20 @@ app = FastAPI(
 
 @app.on_event("startup")
 def startup():
+    log.info("=" * 60)
+    log.info("[startup] Ram Fincorp Support Chatbot starting up...")
+    log.info("[startup] LLM model=%s | openai_key_present=%s | key_len=%d",
+             MODEL, bool(OPENAI_API_KEY), len(OPENAI_API_KEY or ""))
+    log.info("[startup] SERVE_FRONTEND=%s", os.getenv("SERVE_FRONTEND", "false"))
+    customer_api.log_config()
+    zoho.log_config()
     try:
         db.init_db()
-        log.info("Database connected and initialized")
+        log.info("[startup] Database connected and initialized")
     except Exception as exc:
-        log.warning("Database not available — history disabled: %s", exc)
+        log.warning("[startup] Database not available — history disabled: %s", exc)
+    log.info("[startup] Startup complete")
+    log.info("=" * 60)
 
 
 app.add_middleware(
@@ -1162,9 +1172,9 @@ def get_categories():
 
 
 @app.post("/identify", response_model=IdentifyResponse)
-def identify(req: IdentifyRequest) -> IdentifyResponse:
+async def identify(req: IdentifyRequest) -> IdentifyResponse:
     log.info("[identify] email=%s phone=%s", req.email, req.phone)
-    context, cust = enrichment.build_customer_context(
+    context, cust = await enrichment.build_customer_context(
         email=req.email, phone=req.phone
     )
     if not cust.get("customerID"):
@@ -1181,7 +1191,7 @@ def identify(req: IdentifyRequest) -> IdentifyResponse:
 
 
 @app.post("/history")
-def chat_history(req: HistoryRequest):
+async def chat_history(req: HistoryRequest):
     """Get or initialize chat history for a token."""
     log.info("=" * 60)
     log.info("[history] ===== INCOMING REQUEST =====")
@@ -1211,8 +1221,8 @@ def chat_history(req: HistoryRequest):
         }
 
     log.info("[history] No history found in DB — identifying user via enrichment APIs")
-    context, cust = enrichment.build_customer_context(
-        email=req.email, phone=req.phone
+    context, cust = await enrichment.build_customer_context(
+        email=req.email, phone=req.phone, bearer_token=req.token,
     )
     log.info("[history] Enrichment result: %s", {k: v for k, v in cust.items() if k in ("customerID", "leadID", "email", "mobile")})
 
@@ -1278,7 +1288,7 @@ def clear_history(req: HistoryRequest):
 
 
 @app.post("/chat", response_model=ChatResponse)
-def chat(req: ChatRequest) -> ChatResponse:
+async def chat(req: ChatRequest) -> ChatResponse:
     log.info("=" * 60)
     log.info("[chat] ===== INCOMING REQUEST =====")
     log.info("[chat] message=%s", req.message[:100])
@@ -1344,8 +1354,8 @@ def chat(req: ChatRequest) -> ChatResponse:
             })
         return resp
 
-    context, cust = enrichment.build_customer_context(
-        email=req.email, phone=req.phone
+    context, cust = await enrichment.build_customer_context(
+        email=req.email, phone=req.phone, bearer_token=req.token,
     )
     log.info("[chat] Context length=%d chars | has_context=%s", len(context), bool(context))
     if context:
@@ -1396,16 +1406,27 @@ def chat(req: ChatRequest) -> ChatResponse:
     log.info("[chat] Total messages to LLM: %d (including system prompt)", len(messages))
 
     try:
-        log.info("[chat] Calling LLM (%s)...", MODEL)
-        completion = client.chat.completions.create(
+        system_len = len(system_content)
+        total_input_chars = sum(len(m.get("content", "")) for m in messages)
+        log.info("[chat] LLM INPUT — model=%s | system_prompt_chars=%d | total_input_chars=%d | messages=%d",
+                 MODEL, system_len, total_input_chars, len(messages))
+        llm_start = time.time()
+        completion = await client.chat.completions.create(
             model=MODEL,
             messages=messages,
             response_format={"type": "json_object"},
         )
+        llm_elapsed = (time.time() - llm_start) * 1000
         raw = completion.choices[0].message.content or ""
-        log.info("[chat] Raw LLM output: %s", raw[:500])
+        usage = completion.usage
+        log.info("[chat] LLM OUTPUT — %.0fms | prompt_tokens=%s | completion_tokens=%s | total_tokens=%s",
+                 llm_elapsed,
+                 getattr(usage, "prompt_tokens", "?"),
+                 getattr(usage, "completion_tokens", "?"),
+                 getattr(usage, "total_tokens", "?"))
+        log.info("[chat] LLM raw response: %s", raw[:500])
         response, extra = _parse_llm_json(raw)
-        log.info("[chat] LLM response — action=%s confidence=%s category=%s",
+        log.info("[chat] LLM parsed — action=%s confidence=%s category=%s",
                  response.action, response.confidence, response.category)
 
         if response.action == "RESOLVE":
@@ -1441,7 +1462,7 @@ def chat(req: ChatRequest) -> ChatResponse:
                 response.reply = "Could not fetch documents — customer not identified."
                 log.warning("[chat] SHOW_DOCUMENTS — no customerID available")
             else:
-                all_loans = customer_api.get_customer_documents(customer_id) or []
+                all_loans = await customer_api.get_customer_documents(customer_id, bearer_token=req.token) or []
                 log.info("[chat] SHOW_DOCUMENTS — fetched %d loan(s) from API", len(all_loans))
 
                 if not all_loans:
@@ -1530,7 +1551,7 @@ def chat(req: ChatRequest) -> ChatResponse:
             log.info("[chat] ESCALATE — category=%s", category)
             log.info("[chat] ESCALATE — ticket_subject=%s", ticket_subject[:100])
 
-            open_tickets = zoho.get_open_tickets_with_context(email) if email else []
+            open_tickets = (await zoho.get_open_tickets_with_context(email)) if email else []
             existing = _check_existing_ticket(ticket_subject, open_tickets)
 
             if existing:
@@ -1545,10 +1566,10 @@ def chat(req: ChatRequest) -> ChatResponse:
             else:
                 log.info("[chat] ESCALATE — no existing ticket match, creating new")
                 log.info("[chat] ESCALATE — ticket_description=%s", ticket_description[:150])
-                contact_id = zoho.find_or_create_contact(email) if email else None
+                contact_id = (await zoho.find_or_create_contact(email)) if email else None
                 log.info("[chat] ESCALATE — contact_id=%s for email=%s", contact_id, email)
                 if contact_id:
-                    ticket = zoho.create_ticket(
+                    ticket = await zoho.create_ticket(
                         contact_id=contact_id,
                         email=email,
                         subject=ticket_subject,
@@ -1602,11 +1623,11 @@ def chat(req: ChatRequest) -> ChatResponse:
 
 
 @app.get("/documents/{customer_id}")
-def get_documents(customer_id: str):
+async def get_documents(customer_id: str, token: Optional[str] = Query(None)):
     log.info("=" * 60)
     log.info("[documents] ===== INCOMING REQUEST =====")
-    log.info("[documents] customer_id=%s", customer_id)
-    docs = customer_api.get_customer_documents(customer_id)
+    log.info("[documents] customer_id=%s | token_present=%s", customer_id, bool(token))
+    docs = await customer_api.get_customer_documents(customer_id, bearer_token=token)
     if docs is not None:
         log.info("[documents] ===== RESPONSE: %d document(s) =====", len(docs))
         return {"success": True, "documents": docs}
@@ -1615,10 +1636,10 @@ def get_documents(customer_id: str):
 
 
 @app.get("/document-url/{doc_id}")
-def document_url(doc_id: str):
+async def document_url(doc_id: str, token: Optional[str] = Query(None)):
     log.info("=" * 60)
-    log.info("[document-url] ===== INCOMING REQUEST ===== doc_id=%s", doc_id)
-    url = customer_api.get_document_url(doc_id)
+    log.info("[document-url] ===== INCOMING REQUEST ===== doc_id=%s | token_present=%s", doc_id, bool(token))
+    url = await customer_api.get_document_url(doc_id, bearer_token=token)
     if url:
         log.info("[document-url] === SUCCESS === url_length=%d", len(url))
         return {"success": True, "url": url}

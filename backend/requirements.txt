@@ -5,4 +5,5 @@ openai
 python-dotenv
 pydantic
 requests
+httpx
 psycopg2-binary
